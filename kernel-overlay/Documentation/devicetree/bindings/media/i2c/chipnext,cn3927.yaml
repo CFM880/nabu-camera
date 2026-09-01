@@ -1,0 +1,50 @@
+# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/media/i2c/chipnext,cn3927.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Chipnext CN3927 camera voice coil lens driver
+
+maintainers:
+  - Cheng Fangming <chengfangming1993@gmail.com>
+
+description:
+  The CN3927 is a 10-bit DAC with current sink capability intended for
+  driving voice coil lenses in camera modules.
+
+properties:
+  compatible:
+    const: chipnext,cn3927
+
+  reg:
+    maxItems: 1
+
+  vcc-supply:
+    description: VDD power supply
+
+  vio-supply:
+    description: I/O and I2C pull-up power supply
+
+required:
+  - compatible
+  - reg
+  - vcc-supply
+  - vio-supply
+
+additionalProperties: false
+
+examples:
+  - |
+    i2c {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        lens@c {
+            compatible = "chipnext,cn3927";
+            reg = <0x0c>;
+            vio-supply = <&camera_vio_1v8>;
+            vcc-supply = <&camera_vcm_2v8>;
+        };
+    };
+...

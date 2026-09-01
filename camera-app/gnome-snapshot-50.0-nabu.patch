@@ -1,0 +1,238 @@
+# Apply to GNOME Snapshot tag 50.0 (commit 79cc14698813).
+#
+# Keeps the existing nabu viewfinder orientation correction, bypasses the
+# redundant decoder for raw PipeWire/libcamera streams, and adds separate
+# high-resolution 4:3 caps for still capture while retaining a 1080p preview.
+diff --git a/aperture/src/camera.rs b/aperture/src/camera.rs
+index 6aa9e75..8aab007 100644
+--- a/aperture/src/camera.rs
++++ b/aperture/src/camera.rs
+@@ -159,4 +159,20 @@ impl Camera {
+ 
+         highest_res_caps
+     }
++
++    pub(crate) fn best_still_caps(&self) -> gst::Caps {
++        let size = self
++            .caps()
++            .as_ref()
++            .and_then(utils::caps::best_still_mode);
++
++        if let Some(utils::Size { width, height }) = size {
++            gst::Caps::builder("video/x-raw")
++                .field("width", width)
++                .field("height", height)
++                .build()
++        } else {
++            gst::Caps::builder("video/x-raw").build()
++        }
++    }
+ }
+diff --git a/aperture/src/utils.rs b/aperture/src/utils.rs
+index 72ab13b..303183e 100644
+--- a/aperture/src/utils.rs
++++ b/aperture/src/utils.rs
+@@ -86,6 +86,43 @@ pub(crate) mod caps {
+             .or(best_size_fallback)
+     }
+ 
++    /// Selects the largest 4:3 mode for still capture.
++    ///
++    /// Camera sensors generally expose their full field of view in a 4:3
++    /// mode. If a device has no 4:3 mode, use its largest advertised mode.
++    pub(crate) fn best_still_mode(caps: &gst::Caps) -> Option<Size> {
++        let mut best_four_three: Option<Size> = None;
++        let mut best_any_ratio: Option<Size> = None;
++
++        for cap in caps.iter() {
++            let Ok(width) = cap.get::<i32>("width") else {
++                continue;
++            };
++            let Ok(height) = cap.get::<i32>("height") else {
++                continue;
++            };
++
++            let pixels = i64::from(width) * i64::from(height);
++            let is_larger = |current: &Option<Size>| {
++                current.as_ref().is_none_or(|size| {
++                    pixels > i64::from(size.width) * i64::from(size.height)
++                })
++            };
++
++            if is_larger(&best_any_ratio) {
++                best_any_ratio = Some(Size { width, height });
++            }
++
++            if i64::from(width) * 3 == i64::from(height) * 4
++                && is_larger(&best_four_three)
++            {
++                best_four_three = Some(Size { width, height });
++            }
++        }
++
++        best_four_three.or(best_any_ratio)
++    }
++
+     fn best_resolution_for_fps(caps: &gst::Caps, framerate: gst::Fraction) -> gst::Caps {
+         let fixed_caps = crate::SUPPORTED_ENCODINGS
+             .iter()
+@@ -435,4 +472,53 @@ mod tests {
+             );
+         }
+     }
++
++    #[test]
++    fn test_best_still_mode() {
++        gst::init().expect("Failed to initialize gst");
++
++        let caps_with_four_three = [
++            gst_video::VideoCapsBuilder::new()
++                .width(4096)
++                .height(2160)
++                .build(),
++            gst_video::VideoCapsBuilder::new()
++                .width(3200)
++                .height(2400)
++                .build(),
++            gst_video::VideoCapsBuilder::new()
++                .width(1600)
++                .height(1200)
++                .build(),
++        ]
++        .into_iter()
++        .collect();
++        assert_eq!(
++            caps::best_still_mode(&caps_with_four_three),
++            Some(Size {
++                width: 3200,
++                height: 2400
++            })
++        );
++
++        let caps_without_four_three = [
++            gst_video::VideoCapsBuilder::new()
++                .width(2560)
++                .height(1080)
++                .build(),
++            gst_video::VideoCapsBuilder::new()
++                .width(3840)
++                .height(2160)
++                .build(),
++        ]
++        .into_iter()
++        .collect();
++        assert_eq!(
++            caps::best_still_mode(&caps_without_four_three),
++            Some(Size {
++                width: 3840,
++                height: 2160
++            })
++        );
++    }
+ }
+diff --git a/aperture/src/viewfinder.rs b/aperture/src/viewfinder.rs
+index 0cdc0f5..f492d01 100644
+--- a/aperture/src/viewfinder.rs
++++ b/aperture/src/viewfinder.rs
+@@ -307,7 +307,29 @@ mod imp {
+                 }
+             };
+ 
+-            tee.add_branch(&sink);
++            // The nabu front sensor preview is upside down relative to the
++            // display. Rotate the preview 180 degrees once here.
++            // Using the PipeWire orientation tag in automatic mode causes a
++            // second renegotiation while the camera is already streaming.
++            let oriented_sink = {
++                let bin = gst::Bin::default();
++                let videoflip = gst::ElementFactory::make("videoflip")
++                    .property_from_str("video-direction", "180")
++                    .build()
++                    .expect("Missing GStreamer Good Plug-ins");
++
++                bin.add(&videoflip).unwrap();
++                bin.add(&sink).unwrap();
++                videoflip.link(&sink).unwrap();
++                bin.add_pad(
++                    &gst::GhostPad::with_target(&videoflip.static_pad("sink").unwrap()).unwrap(),
++                )
++                .unwrap();
++
++                bin.upcast()
++            };
++
++            tee.add_branch(&oriented_sink);
+             camerabin.set_property("viewfinder-sink", &tee);
+ 
+             let videoconvert_video = gst::ElementFactory::make("videoconvert")
+@@ -1141,49 +1163,17 @@ impl Viewfinder {
+         let bin = gst::Bin::new();
+ 
+         let capsfilter = gst::ElementFactory::make("capsfilter").build()?;
+-        let decodebin3 = gst::ElementFactory::make("decodebin3").build()?;
+-        let capsfilter_post_decode = gst::ElementFactory::make("capsfilter").build()?;
+-        let caps_post_decode = gst::Caps::builder("video/x-raw").build();
+-        capsfilter_post_decode.set_property("caps", &caps_post_decode);
+-
+-        bin.add_many([
+-            device_src,
+-            &capsfilter,
+-            &decodebin3,
+-            &capsfilter_post_decode,
+-        ])?;
+-        gst::Element::link_many([device_src, &capsfilter, &decodebin3])?;
+-
+-        self.imp().capsfilter.set(capsfilter).unwrap();
+-
+-        let (sender, receiver) = futures_channel::oneshot::channel::<bool>();
+-        let sender = std::sync::Arc::new(std::sync::Mutex::new(Some(sender)));
+-        decodebin3.connect_pad_added(glib::clone!(#[weak] capsfilter_post_decode, move |_, pad| {
+-            if pad.stream().is_some_and(|stream| matches!(stream.stream_type(), gst::StreamType::VIDEO)) {
+-                let has_succeeded = pad.link(&capsfilter_post_decode.static_pad("sink").unwrap())
+-                                       .inspect_err(|err| {
+-                                           log::error!("Failed to link decodebin3:video_%u pad with capsfilter_post_decode:sink pad: {err}");
+-                                       })
+-                                       .is_ok();
+-                let mut guard = sender.lock().unwrap();
+-                if let Some(sender) = guard.take() {
+-                    let _ = sender.send(has_succeeded);
+-                }
+-            }
+-        }));
++        bin.add_many([device_src, &capsfilter])?;
++        gst::Element::link_many([device_src, &capsfilter])?;
+ 
+-        glib::spawn_future_local(glib::clone!(
+-            #[weak(rename_to = viewfinder)]
+-            self,
+-            async move {
+-                let has_succeeded = receiver.await.unwrap_or_default();
+-                if !has_succeeded {
+-                    viewfinder.imp().set_state(ViewfinderState::Error);
+-                }
+-            }
+-        ));
++        self.imp().capsfilter.set(capsfilter.clone()).unwrap();
+ 
+-        let pad = capsfilter_post_decode.static_pad("src").unwrap();
++        // PipeWire's libcamera nodes already produce raw video. Keeping a
++        // decodebin here makes the dynamic pad fail to relink when camerabin
++        // switches from the 1080p viewfinder to the high-resolution still
++        // caps. Connect the raw source directly so renegotiation stays on a
++        // single, stable pad.
++        let pad = capsfilter.static_pad("src").unwrap();
+         let ghost_pad = gst::GhostPad::with_target(&pad)?;
+         ghost_pad.set_active(true)?;
+ 
+@@ -1216,6 +1206,11 @@ impl Viewfinder {
+             capsfilter.set_property("caps", &caps);
+         }
+ 
++        let still_caps = camera.best_still_caps();
++        log::debug!("Using still capture caps: {still_caps:#?}");
++        imp.camerabin()
++            .set_property("image-capture-caps", still_caps);
++
+         let is_front_camera = !matches!(camera.location(), crate::CameraLocation::Back);
+         imp.is_front_camera.set(is_front_camera);
+ 

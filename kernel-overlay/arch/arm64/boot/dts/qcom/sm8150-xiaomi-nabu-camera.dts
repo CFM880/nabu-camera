@@ -1,0 +1,9 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Xiaomi Pad 5 (nabu) camera-enabled derivative.
+ *
+ * Keep the upstream board DTS unchanged and append the camera description.
+ */
+
+#include "sm8150-xiaomi-nabu.dts"
+#include "sm8150-xiaomi-nabu-camera.dtsi"
