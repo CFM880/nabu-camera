@@ -32,10 +32,15 @@ fi
 : "${JOBS:=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)}"
 export ARCH CROSS_COMPILE
 
+dtb=sm8150-xiaomi-nabu-camera.dtb
+if [ -f "$kernel_tree/arch/arm64/boot/dts/qcom/sm8150-xiaomi-nabu-iris-camera.dts" ]; then
+	dtb=sm8150-xiaomi-nabu-iris-camera.dtb
+fi
+
 make -C "$kernel_tree" O="$output_dir" olddefconfig
 make -C "$kernel_tree" O="$output_dir" -j"$JOBS" \
-	modules qcom/sm8150-xiaomi-nabu-camera.dtb
+	modules "qcom/$dtb"
 
-dtb=$output_dir/arch/arm64/boot/dts/qcom/sm8150-xiaomi-nabu-camera.dtb
-test -f "$dtb"
-echo "built camera modules and $dtb"
+output_dtb=$output_dir/arch/arm64/boot/dts/qcom/$dtb
+test -f "$output_dtb"
+echo "built camera modules and $output_dtb"

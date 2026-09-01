@@ -46,7 +46,8 @@ sm8150-xiaomi-nabu-camera.dts
 qcom/sm8150-xiaomi-nabu-camera.dtb
 ```
 
-这种布局允许原 nabu DTS 继续由上游或 `nabu-iris` 修改，而相机节点保持独立。
+这种布局允许原 nabu DTS 继续由上游维护，而相机节点保持独立。如果同时安装
+`nabu-iris`，两个追加文件由显式的组合 DTS 汇总。
 
 ## 放入内核树
 
@@ -73,6 +74,12 @@ git -C linux checkout 5181e1358ddd6ea8028e841d928942373e6aebc8
 
 ```text
 linux/out/arch/arm64/boot/dts/qcom/sm8150-xiaomi-nabu-camera.dtb
+```
+
+如果目标树同时安装了 `nabu-iris`，脚本会自动改为构建：
+
+```text
+linux/out/arch/arm64/boot/dts/qcom/sm8150-xiaomi-nabu-iris-camera.dtb
 ```
 
 构建产物必须与正在运行的内核版本、配置和符号完全匹配。
