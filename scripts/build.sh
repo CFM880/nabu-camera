@@ -10,6 +10,7 @@ fi
 kernel_tree=$(CDPATH= cd -- "$1" && pwd)
 mkdir -p "$2"
 output_dir=$(CDPATH= cd -- "$2" && pwd)
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 if [ ! -f "$kernel_tree/Makefile" ]; then
 	echo "not a Linux source tree: $kernel_tree" >&2
@@ -37,6 +38,7 @@ if [ -f "$kernel_tree/arch/arm64/boot/dts/qcom/sm8150-xiaomi-nabu-iris-camera.dt
 	dtb=sm8150-xiaomi-nabu-iris-camera.dtb
 fi
 
+"$script_dir/merge-config.sh" "$kernel_tree" "$output_dir"
 make -C "$kernel_tree" O="$output_dir" olddefconfig
 make -C "$kernel_tree" O="$output_dir" -j"$JOBS" \
 	modules "qcom/$dtb"

@@ -33,3 +33,7 @@ overlapping DTS files were intentionally not copied. Their camera-only changes
 were moved into `sm8150-xiaomi-nabu-camera.dtsi`, which is included by the new
 derived board DTS. This keeps the camera overlay independent and composable
 with `nabu-iris`.
+
+The original full copy of `arch/arm64/configs/sm8150.config` was replaced by
+`config/nabu-camera.config`. It is merged into an existing kernel `.config`
+instead of overwriting the board defconfig.

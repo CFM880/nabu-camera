@@ -50,4 +50,5 @@ done
 cp -a "$overlay_dir/." "$kernel_tree/"
 echo "installed nabu-camera source overlay into $kernel_tree"
 echo "camera DTB target: qcom/sm8150-xiaomi-nabu-camera.dtb"
+echo "config fragment: config/nabu-camera.config"
 git -C "$kernel_tree" status --short

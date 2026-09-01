@@ -23,6 +23,7 @@ UKI 或完整模块树。内核文件保留原始相对路径，可以覆盖到�
 
 ```text
 kernel-overlay/   按 Linux 源码路径组织的相机内核源码
+config/           可合并到现有 .config 的相机 Kconfig fragment
 camera-app/       nabu-autofocus 及 GNOME Snapshot 补丁
 camera-tuning/    libcamera simple IPA 调校文件
 scripts/          覆盖、构建和安装辅助脚本
@@ -64,10 +65,17 @@ git -C linux checkout 5181e1358ddd6ea8028e841d928942373e6aebc8
 
 ## 构建
 
-输出目录需要已有适用于 nabu 的 `.config`。应用覆盖层后运行：
+输出目录需要已有适用于 nabu 的 `.config`。构建脚本先用内核自带的
+`merge_config.sh` 合并 `config/nabu-camera.config`，不会替换主 defconfig：
 
 ```sh
 ./scripts/build.sh ./linux ./linux/out
+```
+
+也可以只合并配置：
+
+```sh
+./scripts/merge-config.sh ./linux ./linux/out
 ```
 
 脚本构建模块以及：
