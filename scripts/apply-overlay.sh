@@ -47,7 +47,9 @@ find "$overlay_dir" -type f -print | sort | while IFS= read -r source; do
 	fi
 done
 
-cp -a "$overlay_dir/." "$kernel_tree/"
+# Give installed sources fresh timestamps so an incremental O= build cannot
+# reuse objects produced from an older revision of the overlay.
+cp -R "$overlay_dir/." "$kernel_tree/"
 echo "installed nabu-camera source overlay into $kernel_tree"
 echo "camera DTB target: qcom/sm8150-xiaomi-nabu-camera.dtb"
 echo "config fragment: config/nabu-camera.config"
