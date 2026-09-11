@@ -1,0 +1,40 @@
+schema = 1
+
+[module]
+name        = "nabu-camera"
+description = "OV13B10/OV8856/CN3927 camera stack (CCI, CAMSS, CAMCC)"
+requires    = []
+
+[provides]
+overlay   = "kernel-overlay"
+dtsi      = ["arch/arm64/boot/dts/qcom/sm8150-xiaomi-nabu-camera.dtsi"]
+config    = ["config/nabu-camera.config"]
+userspace = ["camera-tuning/ov13b10.yaml", "camera-tuning/ov8856.yaml"]
+
+[build]
+kernel_targets = [
+    "drivers/i2c/busses/i2c-qcom-cci.ko",
+    "drivers/media/platform/qcom/camss/qcom-camss.ko",
+    "drivers/clk/qcom/camcc-sm8150.ko",
+    "drivers/media/i2c/ov8856.ko",
+    "drivers/media/i2c/ov13b10.ko",
+    "drivers/media/i2c/cn3927.ko",
+]
+
+[artifacts]
+"i2c-qcom-cci.ko" = "out:drivers/i2c/busses/i2c-qcom-cci.ko"
+"qcom-camss.ko"   = "out:drivers/media/platform/qcom/camss/qcom-camss.ko"
+"camcc-sm8150.ko" = "out:drivers/clk/qcom/camcc-sm8150.ko"
+"ov8856.ko"       = "out:drivers/media/i2c/ov8856.ko"
+"ov13b10.ko"      = "out:drivers/media/i2c/ov13b10.ko"
+"cn3927.ko"       = "out:drivers/media/i2c/cn3927.ko"
+
+[install]
+"i2c-qcom-cci.ko"    = "/lib/modules/@release@/kernel/drivers/i2c/busses/i2c-qcom-cci.ko"
+"qcom-camss.ko"      = "/lib/modules/@release@/kernel/drivers/media/platform/qcom/camss/qcom-camss.ko"
+"camcc-sm8150.ko"    = "/lib/modules/@release@/kernel/drivers/clk/qcom/camcc-sm8150.ko"
+"ov8856.ko"          = "/lib/modules/@release@/kernel/drivers/media/i2c/ov8856.ko"
+"ov13b10.ko"         = "/lib/modules/@release@/kernel/drivers/media/i2c/ov13b10.ko"
+"cn3927.ko"          = "/lib/modules/@release@/kernel/drivers/media/i2c/cn3927.ko"
+"userspace/ov13b10.yaml" = "/usr/share/libcamera/ipa/simple/ov13b10.yaml"
+"userspace/ov8856.yaml"  = "/usr/share/libcamera/ipa/simple/ov8856.yaml"

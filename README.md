@@ -26,78 +26,56 @@ kernel-overlay/   按 Linux 源码路径组织的相机内核源码
 config/           可合并到现有 .config 的相机 Kconfig fragment
 camera-app/       nabu-autofocus 及 GNOME Snapshot 补丁
 camera-tuning/    libcamera simple IPA 调校文件
-scripts/          覆盖、构建和安装辅助脚本
+scripts/          安装辅助脚本
 LICENSES/         源码 SPDX 标识对应的许可证文本
 ```
 
-## 设备树追加模式
+## 设备树
 
-仓库不覆盖 `sm8150.dtsi`，也不修改原始
-`sm8150-xiaomi-nabu.dts`。相机设备树由两个新文件组成：
+仓库不覆盖 `sm8150.dtsi`，也不修改原始 `sm8150-xiaomi-nabu.dts`，只提供
+`arch/arm64/boot/dts/qcom/sm8150-xiaomi-nabu-camera.dtsi` 片段。组合 DTB 不再手写，
+由 `nabu-main compose` 按产品顺序自动生成（Iris、Camera、Accelerometer、Power）。
 
-```text
-sm8150-xiaomi-nabu-camera.dts
-  ├─ include sm8150-xiaomi-nabu.dts
-  └─ include sm8150-xiaomi-nabu-camera.dtsi
+## 统一构建（nabu-main）
+
+本仓库不再自带覆盖、配置合并或模块构建脚本。跨仓统一构建由同级 `nabu-main`
+读取根目录的 `nabu-module.toml` 完成：
+
+```toml
+[provides]
+overlay = "kernel-overlay"
+dtsi    = ["arch/arm64/boot/dts/qcom/sm8150-xiaomi-nabu-camera.dtsi"]
+config  = ["config/nabu-camera.config"]
+
+[build]
+kernel_targets = [
+    "drivers/i2c/busses/i2c-qcom-cci.ko",
+    "drivers/media/platform/qcom/camss/qcom-camss.ko",
+    "drivers/clk/qcom/camcc-sm8150.ko",
+    "drivers/media/i2c/ov8856.ko",
+    "drivers/media/i2c/ov13b10.ko",
+    "drivers/media/i2c/cn3927.ko",
+]
 ```
 
-因此构建和启动时必须使用派生 DTB：
-
-```text
-qcom/sm8150-xiaomi-nabu-camera.dtb
-```
-
-这种布局允许原 nabu DTS 继续由上游维护，而相机节点保持独立。如果同时安装
-`nabu-iris`，两个追加文件由显式的组合 DTS 汇总。
-
-## 放入内核树
-
-准备位于精确基线的 Linux 源码树：
+在内核基线 `5181e1358ddd6ea8028e841d928942373e6aebc8` 上，于 `nabu-main` 运行：
 
 ```sh
-git clone https://gitlab.postmarketos.org/soc/qualcomm-sm8150/linux.git linux
-git -C linux checkout 5181e1358ddd6ea8028e841d928942373e6aebc8
-./scripts/apply-overlay.sh ./linux
-```
-
-安装脚本允许目标树存在不重叠的修改，所以可以先应用 `nabu-iris`。如果某个相机
-覆盖目标已经被其他工作修改，脚本会停止，不会静默覆盖。
-
-## 构建
-
-输出目录需要已有适用于 nabu 的 `.config`。构建脚本先用内核自带的
-`merge_config.sh` 合并 `config/nabu-camera.config`，不会替换主 defconfig：
-
-```sh
-./scripts/build.sh ./linux ./linux/out
-```
-
-也可以只合并配置：
-
-```sh
-./scripts/merge-config.sh ./linux ./linux/out
-```
-
-脚本构建模块以及：
-
-```text
-linux/out/arch/arm64/boot/dts/qcom/sm8150-xiaomi-nabu-camera.dtb
-```
-
-如果目标树同时安装了 `nabu-iris`，脚本会自动改为构建：
-
-```text
-linux/out/arch/arm64/boot/dts/qcom/sm8150-xiaomi-nabu-iris-camera.dtb
+make apply      # reset linux，应用 overlay/patch
+make compose    # 生成组合 DTS
+make config     # 合并 fragment 并固定统一 release
+make build      # 构建 Image、模块与 DTB
+make collect    # 收集产物到 artifacts/<product>/
 ```
 
 构建产物必须与正在运行的内核版本、配置和符号完全匹配。
 
 ## 安装模块和调校文件
 
-确认 `BUILD_DIR` 指向内核输出目录后执行：
+确认 `BUILD_DIR` 指向统一构建输出后执行：
 
 ```sh
-sudo BUILD_DIR=$PWD/linux/out ./scripts/install-camera-modules.sh
+sudo BUILD_DIR=../nabu-main/out ./scripts/install-camera-modules.sh
 ```
 
 脚本安装 CCI、CAMSS、CN3927 模块和两个 libcamera 调校文件，并保留可回滚备份。
