@@ -17,14 +17,13 @@ UKI 或完整模块树。内核文件保留原始相对路径，可以覆盖到�
 - CN3927 VCM 对焦马达，10 位 `V4L2_CID_FOCUS_ABSOLUTE`
 - libcamera simple IPA 色彩调校文件
 - GTK4/GStreamer 自动对焦原型，支持连续对焦和点击/触摸区域对焦
-- GNOME Snapshot 50.0 高分辨率拍照与方向修正补丁
 
 ## 目录
 
 ```text
 kernel-overlay/   按 Linux 源码路径组织的相机内核源码
 config/           可合并到现有 .config 的相机 Kconfig fragment
-camera-app/       nabu-autofocus 及 GNOME Snapshot 补丁
+camera-app/       nabu-autofocus 原型
 camera-tuning/    libcamera simple IPA 调校文件
 scripts/          安装辅助脚本
 LICENSES/         源码 SPDX 标识对应的许可证文本
