@@ -8,6 +8,7 @@
  * Copyright (C) 2015-2018 Linaro Ltd.
  */
 #include <linux/slab.h>
+#include <linux/version.h>
 #include <media/media-entity.h>
 #include <media/v4l2-dev.h>
 #include <media/v4l2-device.h>
@@ -628,7 +629,11 @@ static int video_open(struct file *file)
 	}
 
 	v4l2_fh_init(vfh, vdev);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
+	v4l2_fh_add(vfh, file);
+#else
 	v4l2_fh_add(vfh);
+#endif
 
 	file->private_data = vfh;
 

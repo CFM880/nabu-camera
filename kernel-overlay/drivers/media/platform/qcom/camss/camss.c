@@ -20,6 +20,7 @@
 #include <linux/pm_domain.h>
 #include <linux/slab.h>
 #include <linux/videodev2.h>
+#include <linux/version.h>
 
 #include <media/media-device.h>
 #include <media/v4l2-async.h>
@@ -2263,15 +2264,21 @@ s64 camss_get_link_freq(struct media_entity *entity, unsigned int bpp,
 			unsigned int lanes)
 {
 	struct media_entity *sensor;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 18, 0)
 	struct v4l2_subdev *subdev;
+#endif
 
 	sensor = camss_find_sensor(entity);
 	if (!sensor)
 		return -ENODEV;
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
+	return v4l2_get_link_freq(&sensor->pads[0], bpp, 2 * lanes);
+#else
 	subdev = media_entity_to_v4l2_subdev(sensor);
 
 	return v4l2_get_link_freq(subdev->ctrl_handler, bpp, 2 * lanes);
+#endif
 }
 
 /*
