@@ -1,44 +1,50 @@
 # nabu-camera
 
-Xiaomi Pad 5（`nabu`、SM8150）的实验性 Linux 前后摄像头、CN3927 对焦马达和
-用户态自动对焦支持。
+**English** | [中文](README.zh.md)
 
-本仓库与 `nabu-iris` 一样保存直接源码覆盖层，不包含完整 Linux 内核树、预编译
-UKI 或完整模块树。内核文件保留原始相对路径，可以覆盖到指定基线后审查和构建。
+Experimental Linux support for the Xiaomi Pad 5 (`nabu`, SM8150) front and rear cameras, the CN3927
+focus actuator, and userspace autofocus.
 
-> 这是实验性代码。替换 DTB、内核或模块可能导致设备无法启动，请准备可用的恢复
-> 方式。
+Like `nabu-iris`, this repository stores a direct source overlay; it does not include a complete
+Linux kernel tree, a prebuilt UKI, or a full module tree. Kernel files keep their original relative
+paths, so they can be overlaid onto a chosen baseline for review and building.
 
-## 当前功能
+> This is experimental code. Replacing the DTB, kernel, or modules may prevent the device from
+> booting; always prepare a working recovery method.
 
-- Qualcomm SM8150 CAMSS、CCI、CSIPHY、CSID 和 VFE 支持
-- OV13B10 后摄，最高 4208×3120
-- OV8856 前摄
-- CN3927 VCM 对焦马达，10 位 `V4L2_CID_FOCUS_ABSOLUTE`
-- libcamera simple IPA 色彩调校文件
-- GTK4/GStreamer 自动对焦原型，支持连续对焦和点击/触摸区域对焦
+## Current features
 
-## 目录
+- Qualcomm SM8150 CAMSS, CCI, CSIPHY, CSID, and VFE support
+- OV13B10 rear camera, up to 4208×3120
+- OV8856 front camera
+- CN3927 VCM focus actuator, 10-bit `V4L2_CID_FOCUS_ABSOLUTE`
+- libcamera simple IPA color tuning files
+- GTK4/GStreamer autofocus prototype with continuous focus and click/touch region focus
+
+## Layout
 
 ```text
-kernel-overlay/   按 Linux 源码路径组织的相机内核源码
-config/           可合并到现有 .config 的相机 Kconfig fragment
-camera-app/       nabu-autofocus 原型
-camera-tuning/    libcamera simple IPA 调校文件
-scripts/          安装辅助脚本
-LICENSES/         源码 SPDX 标识对应的许可证文本
+kernel-overlay/   camera kernel source organized by Linux source paths
+config/           camera Kconfig fragment that can be merged into an existing .config
+camera-app/       the nabu-autofocus prototype
+camera-tuning/    libcamera simple IPA tuning files
+scripts/          install helper scripts
+LICENSES/         license texts for the source SPDX tags
 ```
 
-## 设备树
+## Device tree
 
-仓库不覆盖 `sm8150.dtsi`，也不修改原始 `sm8150-xiaomi-nabu.dts`，只提供
-`arch/arm64/boot/dts/qcom/sm8150-xiaomi-nabu-camera.dtsi` 片段。组合 DTB 不再手写，
-由 `nabu-main compose` 按产品顺序自动生成（Iris、Camera、Accelerometer、Power）。
+The repository does not override `sm8150.dtsi`, nor does it modify the original
+`sm8150-xiaomi-nabu.dts`; it only provides the
+`arch/arm64/boot/dts/qcom/sm8150-xiaomi-nabu-camera.dtsi` fragment. The combined DTB is no longer
+written by hand; it is generated automatically by `nabu-main compose` in product order (Iris,
+Camera, Accelerometer, Power).
 
-## 统一构建（nabu-main）
+## Unified build (nabu-main)
 
-本仓库不再自带覆盖、配置合并或模块构建脚本。跨仓统一构建由同级 `nabu-main`
-读取根目录的 `nabu-module.toml` 完成：
+This repository no longer ships its own overlay, config merging, or module build scripts. The
+cross-repository unified build is handled by the sibling `nabu-main`, which reads the root
+`nabu-module.toml`:
 
 ```toml
 [provides]
@@ -57,44 +63,44 @@ kernel_targets = [
 ]
 ```
 
-在内核基线 `5181e1358ddd6ea8028e841d928942373e6aebc8` 上，于 `nabu-main` 运行：
+On kernel baseline `5181e1358ddd6ea8028e841d928942373e6aebc8`, run in `nabu-main`:
 
 ```sh
-make apply      # reset linux，应用 overlay/patch
-make compose    # 生成组合 DTS
-make config     # 合并 fragment 并固定统一 release
-make build      # 构建 Image、模块与 DTB
-make collect    # 收集产物到 artifacts/<product>/
+make apply      # reset linux, apply overlay/patch
+make compose    # generate the combined DTS
+make config     # merge fragments and pin the unified release
+make build      # build Image, modules, and DTB
+make collect    # collect artifacts into artifacts/<product>/
 ```
 
-构建产物必须与正在运行的内核版本、配置和符号完全匹配。
+Build artifacts must exactly match the running kernel's version, configuration, and symbols.
 
-## 安装模块和调校文件
+## Installing modules and tuning files
 
-确认 `BUILD_DIR` 指向统一构建输出后执行：
+After confirming that `BUILD_DIR` points to the unified build output:
 
 ```sh
 sudo BUILD_DIR=../nabu-main/out ./scripts/install-camera-modules.sh
 ```
 
-脚本安装 CCI、CAMSS、CN3927 模块和两个 libcamera 调校文件，并保留可回滚备份。
-安装后需要重启。回滚命令为：
+The script installs the CCI, CAMSS, and CN3927 modules and the two libcamera tuning files, keeping
+rollback backups. A reboot is required after installation. To roll back:
 
 ```sh
 sudo ./scripts/install-camera-modules.sh --rollback
 ```
 
-## 自动对焦应用
+## Autofocus application
 
 ```sh
 make -C camera-app
 camera-app/nabu-autofocus
 ```
 
-点击或触摸预览可以针对该区域对焦；`--once` 执行一次无窗口自动对焦。完整参数见
-[`camera-app/README.md`](camera-app/README.md)。
+Clicking or touching the preview focuses on that region; `--once` performs a single windowless
+autofocus run. See [`camera-app/README.md`](camera-app/README.md) for the full options.
 
-## 来源和许可证
+## Provenance and license
 
-内核基线、原始提交和拆分说明见 [`SOURCE.md`](SOURCE.md)。各文件按自身 SPDX
-标识授权；Linux 许可证说明见 `COPYING` 与 `LICENSES/`。
+See [`SOURCE.md`](SOURCE.md) for the kernel baseline, original commits, and split notes. Each file
+is licensed under its own SPDX tag; see `COPYING` and `LICENSES/` for the Linux license notices.
