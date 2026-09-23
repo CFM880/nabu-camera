@@ -37,3 +37,5 @@ with `nabu-iris`.
 The original full copy of `arch/arm64/configs/sm8150.config` was replaced by
 `config/nabu-camera.config`. It is merged into an existing kernel `.config`
 instead of overwriting the board defconfig.
+
+The kernel is reset to the clean upstream base `b9d5d463c216763cec719c04536ea9e14512cad4` (Linux 6.14.11) by `nabu-main`, not to this NABU baseline: the port commits in between are carried as module overlays.
