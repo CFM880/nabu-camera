@@ -1,0 +1,49 @@
+diff --git a/src/ipa/libipa/camera_sensor_helper.cpp b/src/ipa/libipa/camera_sensor_helper.cpp
+index e3e3e53..7ae4d5f 100644
+--- a/src/ipa/libipa/camera_sensor_helper.cpp
++++ b/src/ipa/libipa/camera_sensor_helper.cpp
+@@ -753,6 +753,21 @@ public:
+ };
+ REGISTER_CAMERA_SENSOR_HELPER("ov64a40", CameraSensorHelperOv64a40)
+ 
++class CameraSensorHelperOv8856 : public CameraSensorHelper
++{
++public:
++	CameraSensorHelperOv8856()
++	{
++		/*
++		 * The sensor exposes V4L2_CID_ANALOGUE_GAIN in 1/128 steps with
++		 * 0x80 (128) as 1x; the kernel driver writes the code straight
++		 * to register 0x3508.
++		 */
++		gain_ = AnalogueGainLinear{ 1, 0, 0, 128 };
++	}
++};
++REGISTER_CAMERA_SENSOR_HELPER("ov8856", CameraSensorHelperOv8856)
++
+ class CameraSensorHelperOv8858 : public CameraSensorHelper
+ {
+ public:
+@@ -779,6 +794,22 @@ public:
+ };
+ REGISTER_CAMERA_SENSOR_HELPER("ov8865", CameraSensorHelperOv8865)
+ 
++class CameraSensorHelperOv13b10 : public CameraSensorHelper
++{
++public:
++	CameraSensorHelperOv13b10()
++	{
++		/*
++		 * V4L2_CID_ANALOGUE_GAIN is exposed in 1/128 steps with 0x80
++		 * (128) as 1x.  The kernel driver writes the code to register
++		 * 0x3508 shifted left by one, so the resulting gain in real
++		 * units is still code/128.
++		 */
++		gain_ = AnalogueGainLinear{ 1, 0, 0, 128 };
++	}
++};
++REGISTER_CAMERA_SENSOR_HELPER("ov13b10", CameraSensorHelperOv13b10)
++
+ class CameraSensorHelperOv13858 : public CameraSensorHelper
+ {
+ public:
