@@ -19,13 +19,14 @@ UKI 或完整模块树。内核文件保留原始相对路径，可以覆盖到�
 - CN3927 VCM 对焦马达，10 位 `V4L2_CID_FOCUS_ABSOLUTE`
 - libcamera simple IPA 色彩调校文件
 - GTK4/GStreamer 自动对焦原型，支持连续对焦和点击/触摸区域对焦
+- GNOME Snapshot 50.0 高分辨率拍照与方向修正补丁
 
 ## 目录
 
 ```text
 kernel-overlay/   按 Linux 源码路径组织的相机内核源码
 config/           可合并到现有 .config 的相机 Kconfig fragment
-camera-app/       nabu-autofocus 原型
+camera-app/       nabu-autofocus 原型及 GNOME Snapshot 补丁
 camera-tuning/    libcamera simple IPA 调校文件
 scripts/          安装辅助脚本
 LICENSES/         源码 SPDX 标识对应的许可证文本
@@ -95,6 +96,23 @@ camera-app/nabu-autofocus
 
 点击或触摸预览可以针对该区域对焦；`--once` 执行一次无窗口自动对焦。完整参数见
 [`camera-app/README.md`](camera-app/README.md)。
+
+## 拍照应用（GNOME Snapshot）
+
+`camera-app/gnome-snapshot-50.0-nabu.patch` 适用于 GNOME Snapshot 标签 50.0：
+保留 nabu 取景器方向修正、跳过对原始 libcamera 流的多余解码，并在保留 1080p
+预览的同时为静拍增加独立的 4:3 高分辨率 caps。
+
+`scripts/install-snapshot-camera.sh` 会克隆 Snapshot 50.0、应用补丁、跑一遍
+cargo 测试，然后安装到 `~/.local`（可用 `SNAPSHOT_INSTALL_PREFIX` 覆盖）。请以
+桌面用户运行，不要 sudo：
+
+```sh
+./scripts/install-snapshot-camera.sh
+```
+
+后摄 OV13B10 用于静拍；若画面偏软，用 `nabu-autofocus` 驱动 CN3927 对焦。
+libcamera 同一时刻只允许一个消费者，先关闭其它相机预览程序。
 
 ## 来源和许可证
 

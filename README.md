@@ -20,13 +20,14 @@ paths, so they can be overlaid onto a chosen baseline for review and building.
 - CN3927 VCM focus actuator, 10-bit `V4L2_CID_FOCUS_ABSOLUTE`
 - libcamera simple IPA color tuning files
 - GTK4/GStreamer autofocus prototype with continuous focus and click/touch region focus
+- GNOME Snapshot 50.0 high-resolution still capture and orientation fix patch
 
 ## Layout
 
 ```text
 kernel-overlay/   camera kernel source organized by Linux source paths
 config/           camera Kconfig fragment that can be merged into an existing .config
-camera-app/       the nabu-autofocus prototype
+camera-app/       the nabu-autofocus prototype and the GNOME Snapshot patch
 camera-tuning/    libcamera simple IPA tuning files
 scripts/          install helper scripts
 LICENSES/         license texts for the source SPDX tags
@@ -99,6 +100,25 @@ camera-app/nabu-autofocus
 
 Clicking or touching the preview focuses on that region; `--once` performs a single windowless
 autofocus run. See [`camera-app/README.md`](camera-app/README.md) for the full options.
+
+## Still photo capture (GNOME Snapshot)
+
+`camera-app/gnome-snapshot-50.0-nabu.patch` applies to GNOME Snapshot tag 50.0.
+It keeps the nabu viewfinder orientation correction, bypasses the redundant
+decoder for raw libcamera streams, and adds separate high-resolution 4:3 caps
+for still capture while retaining a 1080p preview.
+
+`scripts/install-snapshot-camera.sh` clones Snapshot 50.0, applies the patch,
+runs its cargo test suite, and installs it under `~/.local` (override with
+`SNAPSHOT_INSTALL_PREFIX`). Run it as the desktop user, without sudo:
+
+```sh
+./scripts/install-snapshot-camera.sh
+```
+
+The rear OV13B10 is the still-capture sensor; use `nabu-autofocus` to drive the
+CN3927 lens if the image looks soft. libcamera hands the sensor to one consumer
+at a time, so close other camera preview applications first.
 
 ## Provenance and license
 
