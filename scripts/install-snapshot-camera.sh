@@ -70,7 +70,12 @@ meson setup "${BUILD_DIR}" "${SOURCE_DIR}" \
 	--buildtype=release \
 	--prefix="${INSTALL_PREFIX}"
 ninja -C "${BUILD_DIR}"
-meson test -C "${BUILD_DIR}" cargo-test --print-errorlogs
+# Snapshot 50.0's meson cargo-test runs from the build directory, where there
+# is no Cargo.toml, so it always fails with "could not find Cargo.toml".  Run
+# the workspace tests against the source tree instead.
+CARGO_TARGET_DIR="${BUILD_DIR}/cargo-target" \
+	cargo test --release --workspace \
+		--manifest-path "${SOURCE_DIR}/Cargo.toml"
 meson install -C "${BUILD_DIR}"
 
 echo
