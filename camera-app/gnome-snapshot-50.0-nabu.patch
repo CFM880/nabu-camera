@@ -1,18 +1,39 @@
-# Apply to GNOME Snapshot tag 50.0 (commit 79cc14698813).
-#
-# Keeps the existing nabu viewfinder orientation correction, bypasses the
-# redundant decoder for raw PipeWire/libcamera streams, and adds separate
-# high-resolution 4:3 caps for still capture while retaining a 1080p preview.
 diff --git a/aperture/src/camera.rs b/aperture/src/camera.rs
-index 6aa9e75..8aab007 100644
+index 6aa9e75..2c1fa53 100644
 --- a/aperture/src/camera.rs
 +++ b/aperture/src/camera.rs
-@@ -159,4 +159,20 @@ impl Camera {
+@@ -151,6 +151,17 @@ impl Camera {
+     }
+ 
+     pub(crate) fn best_caps(&self) -> gst::Caps {
++        // nabu: the front OV8856 (2-lane) cannot stream above ~1632x1224 on
++        // this board - its 8 MP sensor mode does not work - so pin the front
++        // preview to a resolution that does stream. The rear is untouched.
++        if matches!(self.location(), crate::CameraLocation::Front) {
++            log::debug!("nabu: pinning the front preview to 1280x720");
++            return gst::Caps::builder("video/x-raw")
++                .field("width", 1280)
++                .field("height", 720)
++                .build();
++        }
++
+         let caps = self
+             .caps()
+             .unwrap_or_else(|| gst::Caps::builder("video/x-raw").build());
+@@ -159,4 +170,28 @@ impl Camera {
  
          highest_res_caps
      }
 +
 +    pub(crate) fn best_still_caps(&self) -> gst::Caps {
++        // nabu: keep the front still within the usable size as well.
++        if matches!(self.location(), crate::CameraLocation::Front) {
++            return gst::Caps::builder("video/x-raw")
++                .field("width", 1600)
++                .field("height", 1200)
++                .build();
++        }
++
 +        let size = self
 +            .caps()
 +            .as_ref()
