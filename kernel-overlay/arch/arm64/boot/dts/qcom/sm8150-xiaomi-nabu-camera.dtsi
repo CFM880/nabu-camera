@@ -494,7 +494,7 @@
 		dvdd-supply = <&camera_vdig_1p2>;
 
 		orientation = <0>;
-		rotation = <270>;
+		rotation = <180>;
 
 		port {
 			ov8856_ep: endpoint {
