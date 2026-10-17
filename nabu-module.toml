@@ -36,5 +36,9 @@ kernel_targets = [
 "ov8856.ko"          = "/lib/modules/@release@/kernel/drivers/media/i2c/ov8856.ko"
 "ov13b10.ko"         = "/lib/modules/@release@/kernel/drivers/media/i2c/ov13b10.ko"
 "cn3927.ko"          = "/lib/modules/@release@/kernel/drivers/media/i2c/cn3927.ko"
-"userspace/ov13b10.yaml" = "/usr/share/libcamera/ipa/simple/ov13b10.yaml"
-"userspace/ov8856.yaml"  = "/usr/share/libcamera/ipa/simple/ov8856.yaml"
+
+# The camera-tuning/*.yaml files are deliberately NOT installed: they use the
+# Ccm/Adjust algorithms, which libcamera 0.4.0 (Debian trixie) does not
+# implement, and a failed simple-IPA init disables the software ISP entirely
+# (no frames at all).  See camera-tuning/README.md; re-add the entries only for
+# a tree whose userspace ships libcamera >= 0.5.
