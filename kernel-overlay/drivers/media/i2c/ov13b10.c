@@ -535,6 +535,10 @@ static const char * const ov13b10_test_pattern_menu[] = {
 #define OV13B10_EXT_CLK			19200000
 #define OV13B10_DATA_LANES		4
 
+/* Native (full pixel array) size */
+#define OV13B10_PIXEL_ARRAY_WIDTH	4208
+#define OV13B10_PIXEL_ARRAY_HEIGHT	3120
+
 /*
  * pixel_rate = link_freq * data-rate * nr_of_lanes / bits_per_sample
  * data rate => double data rate; number of lanes => 4; bits per pixel => 10
@@ -1282,11 +1286,53 @@ static const struct v4l2_subdev_video_ops ov13b10_video_ops = {
 	.s_stream = ov13b10_set_stream,
 };
 
+/*
+ * libcamera's camera sensor support requires the crop targets below; without
+ * them it logs "The sensor kernel driver needs to be fixed" and has to guess
+ * the pixel array size.
+ */
+static int ov13b10_get_selection(struct v4l2_subdev *sd,
+				 struct v4l2_subdev_state *sd_state,
+				 struct v4l2_subdev_selection *sel)
+{
+	struct ov13b10 *ov13b = to_ov13b10(sd);
+
+	switch (sel->target) {
+	case V4L2_SEL_TGT_CROP:
+		mutex_lock(&ov13b->mutex);
+		if (ov13b->cur_mode) {
+			sel->r.left = 0;
+			sel->r.top = 0;
+			sel->r.width = ov13b->cur_mode->width;
+			sel->r.height = ov13b->cur_mode->height;
+		} else {
+			sel->r.left = 0;
+			sel->r.top = 0;
+			sel->r.width = OV13B10_PIXEL_ARRAY_WIDTH;
+			sel->r.height = OV13B10_PIXEL_ARRAY_HEIGHT;
+		}
+		mutex_unlock(&ov13b->mutex);
+		return 0;
+
+	case V4L2_SEL_TGT_NATIVE_SIZE:
+	case V4L2_SEL_TGT_CROP_BOUNDS:
+	case V4L2_SEL_TGT_CROP_DEFAULT:
+		sel->r.left = 0;
+		sel->r.top = 0;
+		sel->r.width = OV13B10_PIXEL_ARRAY_WIDTH;
+		sel->r.height = OV13B10_PIXEL_ARRAY_HEIGHT;
+		return 0;
+	}
+
+	return -EINVAL;
+}
+
 static const struct v4l2_subdev_pad_ops ov13b10_pad_ops = {
 	.enum_mbus_code = ov13b10_enum_mbus_code,
 	.get_fmt = ov13b10_get_pad_format,
 	.set_fmt = ov13b10_set_pad_format,
 	.enum_frame_size = ov13b10_enum_frame_size,
+	.get_selection = ov13b10_get_selection,
 };
 
 static const struct v4l2_subdev_ops ov13b10_subdev_ops = {

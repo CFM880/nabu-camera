@@ -100,6 +100,10 @@
 #define OV8856_REG_MIRROR_OP_1			BIT(1)
 #define OV8856_REG_MIRROR_OP_2			BIT(2)
 
+/* Native (full pixel array) size */
+#define OV8856_PIXEL_ARRAY_WIDTH		3280
+#define OV8856_PIXEL_ARRAY_HEIGHT		2464
+
 #define to_ov8856(_sd)			container_of(_sd, struct ov8856, sd)
 
 static const char * const ov8856_supply_names[] = {
@@ -2268,11 +2272,53 @@ static const struct v4l2_subdev_video_ops ov8856_video_ops = {
 	.s_stream = ov8856_set_stream,
 };
 
+/*
+ * libcamera's camera sensor support requires the crop targets below; without
+ * them it logs "The sensor kernel driver needs to be fixed" and has to guess
+ * the pixel array size.
+ */
+static int ov8856_get_selection(struct v4l2_subdev *sd,
+				struct v4l2_subdev_state *sd_state,
+				struct v4l2_subdev_selection *sel)
+{
+	struct ov8856 *ov8856 = to_ov8856(sd);
+
+	switch (sel->target) {
+	case V4L2_SEL_TGT_CROP:
+		mutex_lock(&ov8856->mutex);
+		if (ov8856->cur_mode) {
+			sel->r.left = 0;
+			sel->r.top = 0;
+			sel->r.width = ov8856->cur_mode->width;
+			sel->r.height = ov8856->cur_mode->height;
+		} else {
+			sel->r.left = 0;
+			sel->r.top = 0;
+			sel->r.width = OV8856_PIXEL_ARRAY_WIDTH;
+			sel->r.height = OV8856_PIXEL_ARRAY_HEIGHT;
+		}
+		mutex_unlock(&ov8856->mutex);
+		return 0;
+
+	case V4L2_SEL_TGT_NATIVE_SIZE:
+	case V4L2_SEL_TGT_CROP_BOUNDS:
+	case V4L2_SEL_TGT_CROP_DEFAULT:
+		sel->r.left = 0;
+		sel->r.top = 0;
+		sel->r.width = OV8856_PIXEL_ARRAY_WIDTH;
+		sel->r.height = OV8856_PIXEL_ARRAY_HEIGHT;
+		return 0;
+	}
+
+	return -EINVAL;
+}
+
 static const struct v4l2_subdev_pad_ops ov8856_pad_ops = {
 	.set_fmt = ov8856_set_format,
 	.get_fmt = ov8856_get_format,
 	.enum_mbus_code = ov8856_enum_mbus_code,
 	.enum_frame_size = ov8856_enum_frame_size,
+	.get_selection = ov8856_get_selection,
 };
 
 static const struct v4l2_subdev_ops ov8856_subdev_ops = {
