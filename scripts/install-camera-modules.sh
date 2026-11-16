@@ -47,6 +47,29 @@ check_tuning() {
 	fi
 }
 
+# The tuning profiles use the Ccm/Adjust algorithms that only exist in
+# libcamera >= 0.5.  On 0.4 (Debian trixie) the simple IPA refuses to load them
+# ("Algorithm 'Ccm' not found" -> IPA init failed -> the software ISP is
+# disabled and the camera delivers no frames at all), so they must not be
+# installed there - and a stale copy has to go.
+libcamera_version() {
+	local v
+	v=$(pkg-config --modversion libcamera 2>/dev/null || true)
+	if [[ -z ${v} ]]; then
+		v=$(dpkg-query -W -f='${Version}' 'libcamera0*' 2>/dev/null |
+			head -n 1 | sed 's/-.*//')
+	fi
+	printf '%s\n' "${v}"
+}
+
+tuning_supported() {
+	local v
+	v=$(libcamera_version)
+	[[ -n ${v} ]] || return 1
+	# true when 0.5 or newer
+	printf '0.5\n%s\n' "${v}" | sort -V -C
+}
+
 require_root() {
 	if [[ ${EUID} -ne 0 ]]; then
 		echo "Error: run this script with sudo." >&2
@@ -94,6 +117,13 @@ install_modules() {
 	check_tuning "${OV8856_TUNING_SOURCE}"
 
 	install -d -m 0755 -- "${INSTALL_DIR}"
+	if ! tuning_supported; then
+		echo "Skipping tuning profiles: libcamera $(libcamera_version) has no Ccm/Adjust" >&2
+		echo "  (they would break the simple IPA and the camera would deliver no frames)" >&2
+		rm -f -- "${OV13B10_TUNING_TARGET}" "${OV8856_TUNING_TARGET}"
+		return 0
+	fi
+
 	install -d -m 0755 -- "${TUNING_DIR}"
 	prepare_target "${CCI_TARGET}"
 	prepare_target "${CAMSS_TARGET}"
