@@ -101,6 +101,42 @@ camera-app/nabu-autofocus
 Clicking or touching the preview focuses on that region; `--once` performs a single windowless
 autofocus run. See [`camera-app/README.md`](camera-app/README.md) for the full options.
 
+## Colour calibration in the desktop apps (libcamera 0.5)
+
+Debian trixie ships libcamera 0.4, whose simple IPA has no `Ccm` algorithm, so
+GNOME Snapshot and `nabu-autofocus` (both take frames through GStreamer's
+`libcamerasrc`) cannot use the tuning profiles and show uncalibrated colours.
+Two scripts build and install 0.5.2 next to the distro copy:
+
+```sh
+./scripts/build-libcamera-0.5.sh            # out/libcamera-0.5.2-arm64.tar.gz
+sudo ./scripts/install-libcamera-0.5.sh out/libcamera-0.5.2-arm64.tar.gz
+```
+
+Everything lands under `/usr/local` and is selected through `GST_PLUGIN_PATH`
+(written to `/etc/environment.d/50-nabu-gst.conf` and `/etc/environment`);
+`/usr/local/lib/aarch64-linux-gnu` is added to `ld.so.conf.d` so
+`libcamera.so.0.5` resolves without an environment variable.  The distro
+libcamera 0.4 stays in place, so rollback is one command:
+
+```sh
+sudo ./scripts/install-libcamera-0.5.sh --rollback
+```
+
+Log out and back in (or reboot) once, because the graphical session inherits
+`GST_PLUGIN_PATH` from the systemd user manager, then check:
+
+```sh
+systemctl --user show-environment | grep GST_PLUGIN_PATH
+GST_PLUGIN_PATH=/usr/local/lib/aarch64-linux-gnu/gstreamer-1.0 \
+    gst-inspect-1.0 libcamerasrc | grep -E 'Filename|Version'   # 0.5.2
+```
+
+`install-camera-modules.sh` detects that tree and installs the tuning profiles
+into `/usr/local/share/libcamera/ipa/simple`, the prefix the IPA actually
+reads; with only the distro 0.4 present it still skips them (a `Ccm` profile
+there makes the IPA fail and the camera deliver no frames).
+
 ## Still photo capture (GNOME Snapshot)
 
 `camera-app/gnome-snapshot-50.0-nabu.patch` applies to GNOME Snapshot tag 50.0.

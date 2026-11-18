@@ -4,10 +4,44 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname -- "${SCRIPT_DIR}")"
+# The tuning profiles use the Ccm algorithm, which only exists in libcamera
+# >= 0.5, and the IPA reads them from its own prefix.  Prefer the /usr/local
+# 0.5 tree installed by build-libcamera-0.5.sh (see README.md) when it is
+# present, otherwise use the distro location.
+libcamera_so_version() {
+	local prefix=$1 so
+	so=$(ls -1 "${prefix}/lib/aarch64-linux-gnu"/libcamera.so.0.* 2>/dev/null |
+		sort -V | tail -n 1 || true)
+	[[ -n ${so} ]] || return 1
+	printf '%s\n' "${so##*/libcamera.so.}"
+}
+
+libcamera_prefix() {
+	local prefix v
+	for prefix in /usr/local /usr; do
+		v=$(libcamera_so_version "${prefix}") || continue
+		printf '%s\n' "${prefix}"
+		return 0
+	done
+	return 1
+}
+
+find_tuning_dir() {
+	local prefix v
+	for prefix in /usr/local /usr; do
+		v=$(libcamera_so_version "${prefix}") || continue
+		if printf '0.5\n%s\n' "${v}" | sort -V -C; then
+			printf '%s/share/libcamera/ipa/simple\n' "${prefix}"
+			return 0
+		fi
+	done
+	printf '/usr/share/libcamera/ipa/simple\n'
+}
+
 BUILD_DIR="${BUILD_DIR:-${REPO_DIR}/out}"
 KERNEL_RELEASE="$(uname -r)"
 INSTALL_DIR="/lib/modules/${KERNEL_RELEASE}/updates/nabu-camera"
-TUNING_DIR="/usr/share/libcamera/ipa/simple"
+TUNING_DIR="$(find_tuning_dir)"
 
 CCI_SOURCE="${BUILD_DIR}/drivers/i2c/busses/i2c-qcom-cci.ko"
 CAMSS_SOURCE="${BUILD_DIR}/drivers/media/platform/qcom/camss/qcom-camss.ko"
@@ -53,7 +87,12 @@ check_tuning() {
 # disabled and the camera delivers no frames at all), so they must not be
 # installed there - and a stale copy has to go.
 libcamera_version() {
-	local v
+	local v prefix
+	prefix=$(libcamera_prefix 2>/dev/null || true)
+	if [[ -n ${prefix} ]]; then
+		libcamera_so_version "${prefix}"
+		return 0
+	fi
 	v=$(pkg-config --modversion libcamera 2>/dev/null || true)
 	if [[ -z ${v} ]]; then
 		v=$(dpkg-query -W -f='${Version}' 'libcamera0*' 2>/dev/null |
@@ -117,19 +156,9 @@ install_modules() {
 	check_tuning "${OV8856_TUNING_SOURCE}"
 
 	install -d -m 0755 -- "${INSTALL_DIR}"
-	if ! tuning_supported; then
-		echo "Skipping tuning profiles: libcamera $(libcamera_version) has no Ccm/Adjust" >&2
-		echo "  (they would break the simple IPA and the camera would deliver no frames)" >&2
-		rm -f -- "${OV13B10_TUNING_TARGET}" "${OV8856_TUNING_TARGET}"
-		return 0
-	fi
-
-	install -d -m 0755 -- "${TUNING_DIR}"
 	prepare_target "${CCI_TARGET}"
 	prepare_target "${CAMSS_TARGET}"
 	prepare_target "${CN3927_TARGET}"
-	prepare_target "${OV13B10_TUNING_TARGET}"
-	prepare_target "${OV8856_TUNING_TARGET}"
 
 	install -m 0644 -- "${CCI_SOURCE}" "${CCI_TARGET}"
 	touch -- "${CCI_TARGET}.managed"
@@ -137,11 +166,21 @@ install_modules() {
 	touch -- "${CAMSS_TARGET}.managed"
 	install -m 0644 -- "${CN3927_SOURCE}" "${CN3927_TARGET}"
 	touch -- "${CN3927_TARGET}.managed"
-	install -m 0644 -- "${OV13B10_TUNING_SOURCE}" "${OV13B10_TUNING_TARGET}"
-	touch -- "${OV13B10_TUNING_TARGET}.managed"
-	install -m 0644 -- "${OV8856_TUNING_SOURCE}" "${OV8856_TUNING_TARGET}"
-	touch -- "${OV8856_TUNING_TARGET}.managed"
 	depmod -a "${KERNEL_RELEASE}"
+
+	if tuning_supported; then
+		install -d -m 0755 -- "${TUNING_DIR}"
+		prepare_target "${OV13B10_TUNING_TARGET}"
+		prepare_target "${OV8856_TUNING_TARGET}"
+		install -m 0644 -- "${OV13B10_TUNING_SOURCE}" "${OV13B10_TUNING_TARGET}"
+		touch -- "${OV13B10_TUNING_TARGET}.managed"
+		install -m 0644 -- "${OV8856_TUNING_SOURCE}" "${OV8856_TUNING_TARGET}"
+		touch -- "${OV8856_TUNING_TARGET}.managed"
+	else
+		echo "Skipping tuning profiles: libcamera $(libcamera_version) has no Ccm/Adjust" >&2
+		echo "  (they would break the simple IPA and the camera would deliver no frames)" >&2
+		rm -f -- "${OV13B10_TUNING_TARGET}" "${OV8856_TUNING_TARGET}"
+	fi
 
 	if [[ $(modinfo -n i2c_qcom_cci) != "${CCI_TARGET}" ]]; then
 		echo "Error: depmod did not select ${CCI_TARGET}." >&2
@@ -163,8 +202,10 @@ install_modules() {
 	echo "  ${CCI_TARGET}"
 	echo "  ${CAMSS_TARGET}"
 	echo "  ${CN3927_TARGET}"
-	echo "  ${OV13B10_TUNING_TARGET}"
-	echo "  ${OV8856_TUNING_TARGET}"
+	if tuning_supported; then
+		echo "  ${OV13B10_TUNING_TARGET}"
+		echo "  ${OV8856_TUNING_TARGET}"
+	fi
 	echo
 	echo "The old modules are still loaded in the running kernel. Reboot to apply:"
 	echo "  sudo reboot"

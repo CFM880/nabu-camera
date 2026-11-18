@@ -97,6 +97,40 @@ camera-app/nabu-autofocus
 点击或触摸预览可以针对该区域对焦；`--once` 执行一次无窗口自动对焦。完整参数见
 [`camera-app/README.md`](camera-app/README.md)。
 
+## 桌面应用的颜色校准（libcamera 0.5）
+
+Debian trixie 自带 libcamera 0.4，它的 simple IPA 没有 `Ccm` 算法，所以
+GNOME Snapshot 和 `nabu-autofocus`（都通过 GStreamer 的 `libcamerasrc` 取帧）
+无法使用调校文件，颜色未校准。两个脚本会把 0.5.2 安装到发行版版本旁边：
+
+```sh
+./scripts/build-libcamera-0.5.sh            # 生成 out/libcamera-0.5.2-arm64.tar.gz
+sudo ./scripts/install-libcamera-0.5.sh out/libcamera-0.5.2-arm64.tar.gz
+```
+
+所有文件都在 `/usr/local` 下，通过 `GST_PLUGIN_PATH` 选择（写入
+`/etc/environment.d/50-nabu-gst.conf` 和 `/etc/environment`）；
+`/usr/local/lib/aarch64-linux-gnu` 会加入 `ld.so.conf.d`，因此
+`libcamera.so.0.5` 不需要环境变量即可解析。发行版的 libcamera 0.4 保持原样，
+回退只需一条命令：
+
+```sh
+sudo ./scripts/install-libcamera-0.5.sh --rollback
+```
+
+需要注销再登录（或重启）一次，图形会话才会从 systemd user manager 继承
+`GST_PLUGIN_PATH`，然后确认：
+
+```sh
+systemctl --user show-environment | grep GST_PLUGIN_PATH
+GST_PLUGIN_PATH=/usr/local/lib/aarch64-linux-gnu/gstreamer-1.0 \
+    gst-inspect-1.0 libcamerasrc | grep -E 'Filename|Version'   # 0.5.2
+```
+
+`install-camera-modules.sh` 会识别这棵 0.5 树，把调校文件安装到
+`/usr/local/share/libcamera/ipa/simple`（IPA 实际读取的前缀）；只有发行版
+0.4 时仍会跳过调校文件（带 `Ccm` 的配置会让 IPA 初始化失败，相机完全不出帧）。
+
 ## 拍照应用（GNOME Snapshot）
 
 `camera-app/gnome-snapshot-50.0-nabu.patch` 适用于 GNOME Snapshot 标签 50.0：
