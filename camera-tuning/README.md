@@ -5,9 +5,10 @@ Qualcomm's `com.qti.tuned.nabu_*.bin`, for libcamera's **simple IPA**.
 
 ## These files require libcamera >= 0.5
 
-They use the `Ccm` and `Adjust` algorithms. libcamera **0.4.0**'s simple IPA
-only implements `BlackLevel`, `Awb`, `Lut` and `Agc`, so loading these files
-there fails *hard*:
+They use the `Ccm` algorithm (libcamera 0.5.0 has `Ccm` but not `Adjust`, which
+landed later, so the profiles do not list `Adjust`).  libcamera **0.4.0**'s
+simple IPA only implements `BlackLevel`, `Awb`, `Lut` and `Agc`, so loading
+these files there fails *hard*:
 
 ```
 ERROR IPAModuleAlgo module.h:79   IPASoft: Algorithm 'Ccm' not found
