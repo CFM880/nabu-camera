@@ -36,6 +36,13 @@ analysis stream, this example focuses a region near the upper-left quarter:
 camera-app/nabu-autofocus --once --point 160,120
 ```
 
+Verified on the tablet (2026-11-18): `nabu-autofocus --once` opens
+`/dev/v4l-subdev25`, runs the coarse scan (128..1023, best 256 with score 30)
+and the fine scan (128..384, best 288 with score 34) and locks focus at 288
+(score 35).  The frames come from the distro libcamera through
+`libcamerasrc`, so the color tuning profiles are not involved during
+autofocus.
+
 Expected libcamera sensor crop warnings can be hidden while testing with:
 
 ```sh
