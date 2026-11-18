@@ -46,10 +46,28 @@ algorithms:
   value is `1024` (= 16 << 6).  `4096` crushes shadows, `64` shifts to 0, and
   the absent/default `255` clamps the whole image to black.
 
-With `Lut` after `Ccm` a `cam --capture=5` run yields five consecutive frames:
-frame 0 is the CCM warm-up (black), frames 1-4 are fully populated.  libcamera
-0.5.0 also multiplies the CCM and AWB gains in the wrong order (a colour cast);
-v0.5.2 has the fix (`libcamera: software_isp: Fix CCM multiplication`).
+## Ccm is currently disabled in the shipped profiles
+
+The conjugation bug in the debayer is fixed
+(`patches/libcamera-0.5-debayer-ccm-swap.patch`, see the README section on
+it), but the matrices still do more harm than good with the simple IPA's
+untuned grey-world AWB:
+
+- front: neutral on a grey wall, but the face region gains ~9% green
+  (191.5/211.3/194.3 with Ccm against 200.8/205.1/197.1 without, measured on
+  the same subject);
+- rear: a strong green cast even on a neutral wall (127.7/183.7/64.5 with
+  Ccm against 170.0/173.6/170.4 with the identity matrix) - its recovered
+  matrices need their convention re-validated.
+
+The deeper issue is the AWB: `IPASoftAwb` is plain grey-world over the whole
+frame (`sumG/sumR, 1, sumG/sumB`) with no tuning hook, so a face-dominated
+frame gets neutralised - the "people change colour" report - and the CCM
+amplifies whatever residual is left.  Restoring calibrated colours needs the
+vendor AWB gains extracted from the Chromatix blob (`com.qti.tuned.*.bin`)
+plus a colour-gain table in the Awb algorithm (libipa already ships the
+machinery).  Until then the profiles run BlackLevel/Awb/Lut/Agc only:
+neutral on grey, uncorrected chroma.
 
 ## Therefore they are not installed by default
 
