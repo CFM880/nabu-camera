@@ -131,6 +131,26 @@ GST_PLUGIN_PATH=/usr/local/lib/aarch64-linux-gnu/gstreamer-1.0 \
 `/usr/local/share/libcamera/ipa/simple`（IPA 实际读取的前缀）；只有发行版
 0.4 时仍会跳过调校文件（带 `Ccm` 的配置会让 IPA 初始化失败，相机完全不出帧）。
 
+## PipeWire 相机应用（GNOME Snapshot）
+
+GNOME Snapshot 不使用 `libcamerasrc`，而是从 PipeWire 的相机节点取帧，该节点
+由 PipeWire 的 SPA `libcamera` 插件创建。发行版插件链接的是 libcamera 0.4，
+所以即使装了 0.5 栈，应用仍是未校准颜色、无自动对焦。两个脚本只重编这个插件：
+
+```sh
+./scripts/build-pipewire-libcamera-0.5.sh       # 生成 out/libspa-libcamera-0.5-arm64.so
+sudo ./scripts/install-pipewire-libcamera-0.5.sh out/libspa-libcamera-0.5-arm64.so
+sudo ./scripts/install-pipewire-libcamera-0.5.sh --rollback
+```
+
+安装器会把发行版插件备份为 `libspa-libcamera.so.nabu-orig`，并重启用户的
+`pipewire`/`wireplumber`。平板实测：journal 显示 wireplumber 使用
+`libcamera v0.5.2`，节点按调校文件实例化 `BlackLevel/Awb/Ccm/Lut/Agc`，
+节点出流时 `focus_absolute` 按粗扫/精扫轨迹移动。
+
+PipeWire 节点仍只枚举到 4096x2160（不含传感器原生 4:3 的 4208x3120），所以
+应用内静态拍照的分辨率上限受此约束。
+
 ## libcamera 内的自动对焦
 
 上游的 simple pipeline（0.5 到 0.8 以及 master）没有镜头支持，软件 IPA 也没有

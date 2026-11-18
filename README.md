@@ -137,6 +137,30 @@ into `/usr/local/share/libcamera/ipa/simple`, the prefix the IPA actually
 reads; with only the distro 0.4 present it still skips them (a `Ccm` profile
 there makes the IPA fail and the camera deliver no frames).
 
+## PipeWire camera applications (GNOME Snapshot)
+
+GNOME Snapshot does not use `libcamerasrc`; it takes frames from the PipeWire
+camera node, which is created by PipeWire's SPA `libcamera` plugin.  The distro
+plugin is linked against libcamera 0.4, so even with the 0.5 stack installed
+the application keeps the uncalibrated colours and gets no autofocus.  Two
+scripts rebuild just that plugin against the 0.5 stack:
+
+```sh
+./scripts/build-pipewire-libcamera-0.5.sh       # out/libspa-libcamera-0.5-arm64.so
+sudo ./scripts/install-pipewire-libcamera-0.5.sh out/libspa-libcamera-0.5-arm64.so
+sudo ./scripts/install-pipewire-libcamera-0.5.sh --rollback
+```
+
+The installer keeps the distro plugin as `libspa-libcamera.so.nabu-orig` and
+restarts the user's `pipewire`/`wireplumber`.  Verified on the tablet: the
+journal shows `libcamera v0.5.2` from wireplumber, the node instantiates
+`BlackLevel/Awb/Ccm/Lut/Agc` from the tuned profile, and `focus_absolute`
+moves through the coarse/fine scan while the node streams.
+
+The PipeWire node still enumerates only up to 4096x2160 (the sensor's native
+4:3 4208x3120 is not in the list), so the still-capture resolution inside the
+application is capped by that.
+
 ## Autofocus in libcamera
 
 Upstream's simple pipeline (0.5 to 0.8 and master) has no lens support, and the
