@@ -5,7 +5,7 @@
 #
 # The distro (trixie) ships libcamera 0.4, whose simple IPA has no Ccm
 # algorithm, so the colour tuning files cannot be used and the desktop camera
-# apps show uncalibrated colours.  This builds 0.5.2 (with the GStreamer
+# apps show uncalibrated colours.  This builds 0.5.x (with the GStreamer
 # plugin, so GNOME Snapshot's libcamerasrc picks it up) into out/.
 #
 # Usage:
@@ -20,10 +20,14 @@ set -eu
 VERSION=${1:-${LIBCAMERA_VERSION:-0.5.2}}
 here=$(cd "$(dirname "$0")/.." && pwd)
 OUT=${OUT:-$here/out}
+
 case "$(uname -m)" in
 x86_64 | amd64) arch=amd64 ;;
 aarch64 | arm64) arch=arm64 ;;
-*) echo "unsupported host architecture: $(uname -m)" >&2; exit 1 ;;
+*)
+	echo "unsupported host architecture: $(uname -m)" >&2
+	exit 1
+	;;
 esac
 BUILDER=${NABU_BUILDER_IMAGE:-nabu-main-builder:$arch}
 
@@ -43,8 +47,27 @@ echo "== fetching libcamera v$VERSION"
 curl -fsSL "https://github.com/libcamera-org/libcamera/archive/refs/tags/v$VERSION.tar.gz" |
 	tar -xz -C "$src" --strip-components=1
 
+cat > "$src/cross.txt" <<'CROSS'
+[binaries]
+c = 'aarch64-linux-gnu-gcc'
+cpp = 'aarch64-linux-gnu-g++'
+ar = 'aarch64-linux-gnu-ar'
+strip = 'aarch64-linux-gnu-strip'
+pkg-config = 'pkg-config'
+
+[host_machine]
+system = 'linux'
+cpu_family = 'aarch64'
+cpu = 'aarch64'
+endian = 'little'
+
+[properties]
+pkg_config_libdir = '/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig'
+CROSS
+
 echo "== building in $BUILDER"
-docker run --rm -v "$src:/src:ro" -v "$OUT:/out" -e VERSION="$VERSION" "$BUILDER" bash -c '
+docker run --rm -v "$src:/src:ro" -v "$OUT:/out" -e VERSION="$VERSION" \
+	"$BUILDER" bash -c '
 set -e
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
@@ -56,23 +79,8 @@ apt-get install -y -qq \
 
 cp -a /src /tmp/src
 cd /tmp/src
-printf "%s\n" \
-	"[binaries]" \
-	"c = aarch64-linux-gnu-gcc" \
-	"cpp = aarch64-linux-gnu-g++" \
-	"ar = aarch64-linux-gnu-ar" \
-	"strip = aarch64-linux-gnu-strip" \
-	"pkg-config = pkg-config" \
-	"[host_machine]" \
-	"system = linux" \
-	"cpu_family = aarch64" \
-	"cpu = aarch64" \
-	"endian = little" \
-	"[properties]" \
-	"pkg_config_libdir = /usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig" \
-	> /tmp/cross.txt
 
-meson setup build --cross-file /tmp/cross.txt --prefix=/usr/local \
+meson setup build --cross-file /tmp/src/cross.txt --prefix=/usr/local \
 	--libdir=lib/aarch64-linux-gnu --buildtype=release \
 	-Dpipelines=simple -Dipas=simple -Dcam=enabled -Dgstreamer=enabled \
 	-Dpycamera=disabled -Dtest=false -Ddocumentation=disabled \
