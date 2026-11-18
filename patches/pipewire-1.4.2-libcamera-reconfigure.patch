@@ -1,0 +1,21 @@
+diff --git a/spa/plugins/libcamera/libcamera-source.cpp b/spa/plugins/libcamera/libcamera-source.cpp
+index f570499..52b7039 100644
+--- a/spa/plugins/libcamera/libcamera-source.cpp
++++ b/spa/plugins/libcamera/libcamera-source.cpp
+@@ -699,7 +699,15 @@ static int port_set_format(struct impl *impl, struct port *port,
+ 	}
+ 
+ 	if (port->current_format && !(flags & SPA_NODE_PARAM_FLAG_TEST_ONLY)) {
+-		spa_libcamera_use_buffers(impl, port, NULL, 0);
++		/*
++		 * A reconfigure while the camera is streaming has to stop it
++		 * first: spa_libcamera_use_buffers() is -ENOTSUP here, so
++		 * leaving the stream running makes the link setup inside
++		 * camera->configure() fail with -EBUSY ("camera cannot be
++		 * opened" for every client that asks for another format).
++		 */
++		spa_libcamera_stream_off(impl);
++		spa_libcamera_clear_buffers(impl, port);
+ 		port->current_format.reset();
+ 	}
+ 

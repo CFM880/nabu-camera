@@ -51,7 +51,7 @@ lc_version=${lc_version%%-arm64*}
 
 src=$(mktemp -d)
 stage=$(mktemp -d)
-trap 'rm -rf "$src" "$stage"' EXIT
+trap 'rm -rf "$src" "$stage" 2>/dev/null || true' EXIT
 mkdir -p "$OUT"
 
 echo "== fetching pipewire v$VERSION"
@@ -82,8 +82,15 @@ endian = 'little'
 pkg_config_libdir = '/usr/local/lib/aarch64-linux-gnu/pkgconfig:/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig'
 CROSS
 
+# Apply the nabu patches on top of the pristine release.
+for patch_file in "$here"/patches/pipewire-*.patch; do
+	[ -e "$patch_file" ] || continue
+	echo "== applying $(basename "$patch_file")"
+	(cd "$src" && patch -p1 --forward < "$patch_file")
+done
+
 echo "== building the plugin in $BUILDER"
-docker run --rm -v "$src:/src:ro" -v "$stage/usr/local:/lcstage:ro" \
+docker run --rm -v "$src:/src:ro" -v "$stage:/lcstage:ro" \
 	-v "$(dirname "$src")/pw-cross.txt:/cross.txt:ro" -v "$OUT:/out" \
 	"$BUILDER" bash -c '
 set -e
