@@ -1,0 +1,466 @@
+diff --git a/include/libcamera/internal/software_isp/software_isp.h b/include/libcamera/internal/software_isp/software_isp.h
+index 7862465..1edc848 100644
+--- a/include/libcamera/internal/software_isp/software_isp.h
++++ b/include/libcamera/internal/software_isp/software_isp.h
+@@ -7,6 +7,7 @@
+ 
+ #pragma once
+ 
++#include <array>
+ #include <deque>
+ #include <functional>
+ #include <initializer_list>
+@@ -37,6 +38,7 @@
+ 
+ namespace libcamera {
+ 
++class CameraLens;
+ class DebayerCpu;
+ class FrameBuffer;
+ class PixelFormat;
+@@ -73,6 +75,8 @@ public:
+ 	void processStats(const uint32_t frame, const uint32_t bufferId,
+ 			  const ControlList &sensorControls);
+ 
++	void setLens(CameraLens *lens);
++
+ 	int start();
+ 	void stop();
+ 
+@@ -92,6 +96,8 @@ private:
+ 	void saveIspParams();
+ 	void setSensorCtrls(const ControlList &sensorControls);
+ 	void statsReady(uint32_t frame, uint32_t bufferId);
++	void runAutoFocus(uint32_t frame);
++	void startAutoFocus(bool continuous);
+ 	void inputReady(FrameBuffer *input);
+ 	void outputReady(FrameBuffer *output);
+ 
+@@ -105,6 +111,28 @@ private:
+ 	std::unique_ptr<ipa::soft::IPAProxySoft> ipa_;
+ 	std::deque<FrameBuffer *> queuedInputBuffers_;
+ 	std::deque<FrameBuffer *> queuedOutputBuffers_;
++
++	CameraLens *lens_ = nullptr;
++	struct AutoFocusState {
++		enum class Phase { Idle, Coarse, Fine, Locked };
++		Phase phase = Phase::Idle;
++		bool continuous = true;
++		unsigned int sampleCount = 0;
++		int32_t minPos = 0;
++		int32_t maxPos = 0;
++		int32_t pos = 0;
++		int32_t bestPos = 0;
++		uint32_t bestScore = 0;
++		uint32_t settle = 0;
++		uint32_t lockedScore = 0;
++		unsigned int lowCount = 0;
++		bool haveLock = false;
++		int32_t lockedPos = 0;
++		int32_t fineLo = 0;
++		int32_t fineHi = 0;
++		int32_t fineStep = 1;
++		std::array<uint32_t, 3> samples = {};
++	} af_;
+ };
+ 
+ } /* namespace libcamera */
+diff --git a/src/libcamera/pipeline/simple/simple.cpp b/src/libcamera/pipeline/simple/simple.cpp
+index 4323472..e190b14 100644
+--- a/src/libcamera/pipeline/simple/simple.cpp
++++ b/src/libcamera/pipeline/simple/simple.cpp
+@@ -606,6 +606,23 @@ int SimpleCameraData::init()
+ 			swIsp_->ispStatsReady.connect(this, &SimpleCameraData::ispStatsReady);
+ 			swIsp_->metadataReady.connect(this, &SimpleCameraData::metadataReady);
+ 			swIsp_->setSensorControls.connect(this, &SimpleCameraData::setSensorControls);
++
++			/*
++			 * When the sensor has a focus lens, let the software ISP
++			 * run its contrast based autofocus and expose the
++			 * standard AfMode control to applications.
++			 */
++			if (CameraLens *lens = sensor_->focusLens()) {
++				swIsp_->setLens(lens);
++
++				ControlInfoMap::Map ctrls(controlInfo_.begin(),
++							  controlInfo_.end());
++				ctrls[&controls::AfMode] =
++					ControlInfo(controls::AfModeValues,
++						    controls::AfModeContinuous);
++				controlInfo_ = ControlInfoMap(std::move(ctrls),
++							      controlInfo_.idmap());
++			}
+ 		}
+ 	}
+ 
+diff --git a/src/libcamera/software_isp/debayer_cpu.cpp b/src/libcamera/software_isp/debayer_cpu.cpp
+index 66f6038..5fe9f16 100644
+--- a/src/libcamera/software_isp/debayer_cpu.cpp
++++ b/src/libcamera/software_isp/debayer_cpu.cpp
+@@ -812,6 +812,8 @@ void DebayerCpu::process(uint32_t frame, FrameBuffer *input, FrameBuffer *output
+ 	else
+ 		process4(in.planes()[0].data(), out.planes()[0].data());
+ 
++	updateFocusSharpness(out.planes()[0].data());
++
+ 	metadata.planes()[0].bytesused = out.planes()[0].size();
+ 
+ 	dmaSyncers.clear();
+@@ -843,6 +845,63 @@ void DebayerCpu::process(uint32_t frame, FrameBuffer *input, FrameBuffer *output
+ 	inputBufferReady.emit(input);
+ }
+ 
++/*
++ * The simple IPA has no autofocus statistics of its own, so derive a contrast
++ * metric right after debayering: the mean absolute gradient of the green
++ * channel over the central half of the frame.  Every second pixel is sampled
++ * in both directions, which keeps the cost negligible next to the debayer.
++ */
++void DebayerCpu::updateFocusSharpness(const uint8_t *data)
++{
++	const unsigned int bpp = outputConfig_.bpp;
++	const unsigned int stride = outputConfig_.stride;
++	const unsigned int width = window_.width;
++	const unsigned int height = window_.height;
++	const unsigned int step = 2;
++	const unsigned int offset = bpp >= 3 ? 1 : 0;
++	const unsigned int x0 = std::max(width / 4, step);
++	const unsigned int x1 = width * 3 / 4;
++	const unsigned int y0 = height / 4;
++	const unsigned int y1 = height * 3 / 4;
++	const uint8_t *prev = nullptr;
++	uint64_t gradient = 0;
++	uint64_t level = 0;
++	unsigned int samples = 0;
++
++	focusSharpness_ = 0;
++
++	if (x1 <= x0 || y1 <= y0)
++		return;
++
++	for (unsigned int y = y0; y < y1; y += step) {
++		const uint8_t *row = data + y * stride;
++
++		if (prev) {
++			for (unsigned int x = x0; x < x1; x += step) {
++				const uint8_t v = row[x * bpp + offset];
++				const uint8_t p = prev[x * bpp + offset];
++				const uint8_t l = row[(x - step) * bpp + offset];
++
++				gradient += (v > p ? v - p : p - v) +
++					    (v > l ? v - l : l - v);
++				level += v;
++				samples++;
++			}
++		}
++
++		prev = row;
++	}
++
++	/*
++	 * Normalise by the mean green level so that exposure and gain changes
++	 * (the AGC is still settling during a scan) do not move the metric.
++	 * Q10 fixed point.
++	 */
++	if (samples && level)
++		focusSharpness_ = std::min<uint64_t>(gradient * 1024 / level,
++						     UINT32_MAX);
++}
++
+ SizeRange DebayerCpu::sizes(PixelFormat inputFormat, const Size &inputSize)
+ {
+ 	Size patternSize = this->patternSize(inputFormat);
+diff --git a/src/libcamera/software_isp/debayer_cpu.h b/src/libcamera/software_isp/debayer_cpu.h
+index 926195e..31c3f60 100644
+--- a/src/libcamera/software_isp/debayer_cpu.h
++++ b/src/libcamera/software_isp/debayer_cpu.h
+@@ -54,6 +54,16 @@ public:
+ 	 */
+ 	unsigned int frameSize() { return outputConfig_.frameSize; }
+ 
++	/**
++	 * \brief Get the focus sharpness metric of the last processed frame
++	 *
++	 * The metric is the mean absolute gradient of the green channel over
++	 * the central part of the frame, in Q4 fixed point.
++	 *
++	 * \return The sharpness metric, or 0 if no frame has been processed
++	 */
++	uint32_t focusSharpness() const { return focusSharpness_; }
++
+ private:
+ 	/**
+ 	 * \brief Called to debayer 1 line of Bayer input data to output format
+@@ -134,6 +144,7 @@ private:
+ 	void memcpyNextLine(const uint8_t *linePointers[]);
+ 	void process2(const uint8_t *src, uint8_t *dst);
+ 	void process4(const uint8_t *src, uint8_t *dst);
++	void updateFocusSharpness(const uint8_t *data);
+ 
+ 	/* Max. supported Bayer pattern height is 4, debayering this requires 5 lines */
+ 	static constexpr unsigned int kMaxLineBuffers = 5;
+@@ -150,6 +161,7 @@ private:
+ 	debayerFn debayer2_;
+ 	debayerFn debayer3_;
+ 	Rectangle window_;
++	uint32_t focusSharpness_ = 0;
+ 	DebayerInputConfig inputConfig_;
+ 	DebayerOutputConfig outputConfig_;
+ 	std::unique_ptr<SwStatsCpu> stats_;
+diff --git a/src/libcamera/software_isp/software_isp.cpp b/src/libcamera/software_isp/software_isp.cpp
+index 28e2a36..98d47b7 100644
+--- a/src/libcamera/software_isp/software_isp.cpp
++++ b/src/libcamera/software_isp/software_isp.cpp
+@@ -7,19 +7,25 @@
+ 
+ #include "libcamera/internal/software_isp/software_isp.h"
+ 
++#include <algorithm>
++#include <array>
+ #include <cmath>
+ #include <stdint.h>
+ #include <sys/mman.h>
+ #include <sys/types.h>
+ #include <unistd.h>
+ 
++#include <linux/v4l2-controls.h>
++
+ #include <libcamera/base/log.h>
+ #include <libcamera/base/thread.h>
+ 
++#include <libcamera/control_ids.h>
+ #include <libcamera/controls.h>
+ #include <libcamera/formats.h>
+ #include <libcamera/stream.h>
+ 
++#include "libcamera/internal/camera_lens.h"
+ #include "libcamera/internal/framebuffer.h"
+ #include "libcamera/internal/ipa_manager.h"
+ #include "libcamera/internal/software_isp/debayer_params.h"
+@@ -292,9 +298,187 @@ int SoftwareIsp::exportBuffers(const Stream *stream, unsigned int count,
+  */
+ void SoftwareIsp::queueRequest(const uint32_t frame, const ControlList &controls)
+ {
++	if (lens_) {
++		const auto afMode = controls.get(controls::AfMode);
++		if (afMode.has_value()) {
++			switch (*afMode) {
++			case controls::AfModeManual:
++				af_.phase = AutoFocusState::Phase::Idle;
++				break;
++			case controls::AfModeAuto:
++				startAutoFocus(false);
++				break;
++			case controls::AfModeContinuous:
++				startAutoFocus(true);
++				break;
++			}
++		}
++
++		const auto afTrigger = controls.get(controls::AfTrigger);
++		if (afTrigger.has_value() && *afTrigger == controls::AfTriggerStart)
++			startAutoFocus(af_.continuous);
++	}
++
+ 	ipa_->queueRequest(frame, controls);
+ }
+ 
++/**
++ * \brief Attach the lens used for autofocus
++ * \param[in] lens The camera lens
++ *
++ * When a lens is attached the software ISP keeps it focused with a contrast
++ * based autofocus loop, since the simple IPA has no lens control.
++ */
++void SoftwareIsp::setLens(CameraLens *lens)
++{
++	const ControlInfoMap &ctrls = lens->controls();
++	const auto it = ctrls.find(V4L2_CID_FOCUS_ABSOLUTE);
++	if (it == ctrls.end()) {
++		LOG(SoftwareIsp, Warning)
++			<< "Lens has no focus control, autofocus disabled";
++		return;
++	}
++
++	af_.minPos = it->second.min().get<int32_t>();
++	af_.maxPos = it->second.max().get<int32_t>();
++	lens_ = lens;
++
++	LOG(SoftwareIsp, Debug)
++		<< "Autofocus lens " << lens->model()
++		<< " focus range " << af_.minPos << "-" << af_.maxPos;
++}
++
++void SoftwareIsp::startAutoFocus(bool continuous)
++{
++	if (!lens_ || af_.maxPos <= af_.minPos)
++		return;
++
++	af_.phase = AutoFocusState::Phase::Coarse;
++	af_.continuous = continuous;
++	af_.pos = af_.minPos;
++	af_.bestPos = af_.pos;
++	af_.bestScore = 0;
++	af_.lowCount = 0;
++	af_.sampleCount = 0;
++	af_.settle = 3;
++	lens_->setFocusPosition(af_.pos);
++}
++
++static uint32_t median3(std::array<uint32_t, 3> &v)
++{
++	if (v[0] > v[1])
++		std::swap(v[0], v[1]);
++	if (v[1] > v[2])
++		std::swap(v[1], v[2]);
++	if (v[0] > v[1])
++		std::swap(v[0], v[1]);
++	return v[1];
++}
++
++void SoftwareIsp::runAutoFocus(uint32_t frame)
++{
++	const int32_t coarseStep = std::max(1, (af_.maxPos - af_.minPos) / 8);
++	const int32_t fineRange = std::max(2, coarseStep);
++	const int32_t fineStep = std::max(1, fineRange / 2);
++	constexpr unsigned int kSettle = 3;
++
++	if (af_.phase == AutoFocusState::Phase::Idle)
++		return;
++
++	/* Let the lens and the exposure settle after the last move. */
++	if (af_.settle) {
++		af_.settle--;
++		return;
++	}
++
++	uint32_t score = debayer_->focusSharpness();
++
++	if (af_.phase == AutoFocusState::Phase::Coarse ||
++	    af_.phase == AutoFocusState::Phase::Fine) {
++		/*
++		 * Average a few frames per position: exposure/gain noise moves
++		 * the metric by up to 3x from frame to frame, enough to pick
++		 * the wrong peak on a single sample.
++		 */
++		af_.samples[af_.sampleCount++] = score;
++		if (af_.sampleCount < af_.samples.size())
++			return;
++
++		score = median3(af_.samples);
++		af_.sampleCount = 0;
++
++		LOG(SoftwareIsp, Debug)
++			<< "Autofocus frame " << frame
++			<< " position " << af_.pos << " score " << score;
++	}
++
++	switch (af_.phase) {
++	case AutoFocusState::Phase::Coarse:
++		if (score > af_.bestScore) {
++			af_.bestScore = score;
++			af_.bestPos = af_.pos;
++		}
++
++		if (af_.pos + coarseStep <= af_.maxPos) {
++			af_.pos += coarseStep;
++			lens_->setFocusPosition(af_.pos);
++			af_.settle = kSettle;
++		} else {
++			/* Refine around the best coarse position. */
++			af_.fineLo = std::max(af_.minPos, af_.bestPos - fineRange);
++			af_.fineHi = std::min(af_.maxPos, af_.bestPos + fineRange);
++			af_.fineStep = fineStep;
++			af_.pos = af_.fineLo;
++			/* Keep the coarse best so a worse fine result cannot win. */
++			af_.settle = kSettle;
++			af_.phase = AutoFocusState::Phase::Fine;
++			lens_->setFocusPosition(af_.pos);
++		}
++		break;
++
++	case AutoFocusState::Phase::Fine:
++		if (score > af_.bestScore) {
++			af_.bestScore = score;
++			af_.bestPos = af_.pos;
++		}
++
++		if (af_.pos + af_.fineStep <= af_.fineHi) {
++			af_.pos += af_.fineStep;
++			lens_->setFocusPosition(af_.pos);
++			af_.settle = kSettle;
++		} else {
++			af_.pos = af_.bestPos;
++			af_.lockedScore = af_.bestScore;
++			af_.haveLock = true;
++			af_.lockedPos = af_.pos;
++			af_.settle = kSettle;
++			LOG(SoftwareIsp, Debug)
++				<< "Autofocus locked at " << af_.pos
++				<< " score " << af_.lockedScore;
++			af_.phase = af_.continuous
++					    ? AutoFocusState::Phase::Locked
++					    : AutoFocusState::Phase::Idle;
++			lens_->setFocusPosition(af_.pos);
++		}
++		break;
++
++	case AutoFocusState::Phase::Locked:
++		/* Track slowly and rescan when the scene loses sharpness. */
++		af_.lockedScore = (af_.lockedScore * 7 + score) / 8;
++		if (score * 10 < af_.lockedScore * 4)
++			af_.lowCount++;
++		else
++			af_.lowCount = 0;
++
++		if (af_.lowCount >= 20)
++			startAutoFocus(true);
++		break;
++
++	case AutoFocusState::Phase::Idle:
++		break;
++	}
++}
++
+ /**
+  * \brief Queue buffers to Software ISP
+  * \param[in] frame The frame number
+@@ -344,6 +528,19 @@ int SoftwareIsp::start()
+ 		return ret;
+ 
+ 	ispWorkerThread_.start();
++
++	/*
++	 * Keep the focus when the stream is reconfigured (preview -> still):
++	 * a new scan would move the lens while the application captures.
++	 */
++	if (lens_ && af_.haveLock) {
++		af_.phase = AutoFocusState::Phase::Locked;
++		af_.settle = 3;
++		lens_->setFocusPosition(af_.lockedPos);
++	} else {
++		startAutoFocus(true);
++	}
++
+ 	return 0;
+ }
+ 
+@@ -355,6 +552,8 @@ int SoftwareIsp::start()
+  */
+ void SoftwareIsp::stop()
+ {
++	af_.phase = AutoFocusState::Phase::Idle;
++
+ 	ispWorkerThread_.exit();
+ 	ispWorkerThread_.wait();
+ 
+@@ -402,6 +601,9 @@ void SoftwareIsp::setSensorCtrls(const ControlList &sensorControls)
+ 
+ void SoftwareIsp::statsReady(uint32_t frame, uint32_t bufferId)
+ {
++	if (lens_)
++		runAutoFocus(frame);
++
+ 	ispStatsReady.emit(frame, bufferId);
+ }
+ 

@@ -137,6 +137,41 @@ into `/usr/local/share/libcamera/ipa/simple`, the prefix the IPA actually
 reads; with only the distro 0.4 present it still skips them (a `Ccm` profile
 there makes the IPA fail and the camera deliver no frames).
 
+## Autofocus in libcamera
+
+Upstream's simple pipeline (0.5 to 0.8 and master) has no lens support, and the
+software IPA has no autofocus, so `patches/libcamera-0.5-simple-autofocus.patch`
+adds both on top of v0.5.2 (the build script applies it automatically):
+
+- the simple pipeline attaches `CameraSensor::focusLens()` to the software ISP
+  and exposes the standard `AfMode` control (Manual/Auto/Continuous, default
+  Continuous);
+- `DebayerCpu` computes a contrast metric right after debayering: the mean
+  absolute green gradient over the central half of the frame, normalised by the
+  mean green level so AGC changes do not move it, median of three frames;
+- `SoftwareIsp` runs a coarse scan over the lens range, a fine scan around the
+  best position (keeping the coarse best), then tracks the scene and rescans
+  when the score drops.  The lock survives stream reconfiguration
+  (preview -> still) so a still is not captured mid-scan.
+
+Verified on the tablet with `LIBCAMERA_LOG_LEVELS=SoftwareIsp:DEBUG`:
+
+```text
+Autofocus position 0 score 40 ... 1016 score 28      (coarse)
+Autofocus position 254 score 55 ... 506 score 30     (fine)
+Autofocus locked at 253 score 65
+```
+
+`cam --list-controls` lists `AfMode`, and after the process exits
+`v4l2-ctl --get-ctrl focus_absolute` reads back the locked position (253).
+
+The closed Qualcomm AF tuning (`com.qti.tuned.*.bin`) and the actuator driver
+(`com.qti.actuator.nabu_cn3927.so`) live in `/vendor/lib64/camera` inside the
+`super` partition and are not accessible from the Linux side, so the scan
+parameters are measured rather than copied.  Setting `AfMode=Manual` disables
+the built-in loop for applications that drive the lens themselves
+(`nabu-autofocus` does).
+
 ## Still photo capture (GNOME Snapshot)
 
 `camera-app/gnome-snapshot-50.0-nabu.patch` applies to GNOME Snapshot tag 50.0.

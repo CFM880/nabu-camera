@@ -131,6 +131,36 @@ GST_PLUGIN_PATH=/usr/local/lib/aarch64-linux-gnu/gstreamer-1.0 \
 `/usr/local/share/libcamera/ipa/simple`（IPA 实际读取的前缀）；只有发行版
 0.4 时仍会跳过调校文件（带 `Ccm` 的配置会让 IPA 初始化失败，相机完全不出帧）。
 
+## libcamera 内的自动对焦
+
+上游的 simple pipeline（0.5 到 0.8 以及 master）没有镜头支持，软件 IPA 也没有
+自动对焦，因此 `patches/libcamera-0.5-simple-autofocus.patch` 在 v0.5.2 上补上
+这两部分（构建脚本会自动应用）：
+
+- simple pipeline 把 `CameraSensor::focusLens()` 接到软件 ISP，并暴露标准的
+  `AfMode` 控件（Manual/Auto/Continuous，默认 Continuous）；
+- `DebayerCpu` 在去马赛克后计算对比度指标：画面中心一半区域的绿色通道平均
+  绝对梯度，按平均亮度归一化（避免 AGC 影响），并取三帧中位数；
+- `SoftwareIsp` 先在整个镜头范围粗扫，再在最佳位置附近精扫（保留粗扫最优），
+  之后持续跟踪，分数下降时重新扫描。锁定结果在换流（预览→拍照）后保留，
+  静态照片不会拍在扫描过程中。
+
+在平板上用 `LIBCAMERA_LOG_LEVELS=SoftwareIsp:DEBUG` 验证：
+
+```text
+Autofocus position 0 score 40 ... 1016 score 28      (粗扫)
+Autofocus position 254 score 55 ... 506 score 30     (精扫)
+Autofocus locked at 253 score 65
+```
+
+`cam --list-controls` 能看到 `AfMode`；进程退出后
+`v4l2-ctl --get-ctrl focus_absolute` 读回锁定位置（253）。
+
+高通的 AF 调校（`com.qti.tuned.*.bin`）和马达驱动
+（`com.qti.actuator.nabu_cn3927.so`）位于 `super` 分区的
+`/vendor/lib64/camera`，Linux 侧无法访问，所以扫描参数是实测得到的，不是照搬。
+需要自己控制镜头时把 `AfMode` 设为 `Manual`（`nabu-autofocus` 就属于这种情况）。
+
 ## 拍照应用（GNOME Snapshot）
 
 `camera-app/gnome-snapshot-50.0-nabu.patch` 适用于 GNOME Snapshot 标签 50.0：

@@ -47,6 +47,14 @@ echo "== fetching libcamera v$VERSION"
 curl -fsSL "https://github.com/libcamera-org/libcamera/archive/refs/tags/v$VERSION.tar.gz" |
 	tar -xz -C "$src" --strip-components=1
 
+# Apply the nabu patches (lens plumbing + contrast autofocus for the simple
+# pipeline) on top of the pristine release.
+for patch_file in "$here"/patches/libcamera-*.patch; do
+	[ -e "$patch_file" ] || continue
+	echo "== applying $(basename "$patch_file")"
+	(cd "$src" && patch -p1 --forward < "$patch_file")
+done
+
 cat > "$src/cross.txt" <<'CROSS'
 [binaries]
 c = 'aarch64-linux-gnu-gcc'
