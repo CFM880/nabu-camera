@@ -20,6 +20,34 @@ ERROR SoftwareIsp software_isp.cpp:133 IPA init failed
 libcamera falls back to its own `uncalibrated.yaml`, the ISP initialises and the
 camera keeps working (uncalibrated colours).
 
+## The algorithm list matters
+
+```
+algorithms:
+  - BlackLevel:
+      blackLevel: 4096     # 16-bit value; the IPA uses blackLevel >> 8
+  - Awb:
+  - Ccm:
+      ccms: [ { ct: ..., ccm: [...] }, ... ]
+  - Lut:                   # must come AFTER Ccm
+```
+
+- **`Lut` is mandatory.**  `DebayerParams` is a plain aggregate: if no `Lut`
+  algorithm runs, `gammaLut` stays zero and the CCM store path
+  (`GAMMA(blue.b + green.b + red.b)`) writes black for every pixel.  The
+  symptom is a capture that is `RGB 0, alpha 255` (25 % non-zero bytes) even
+  though the ISP input is valid.
+- `Lut` must be listed **after** `Ccm`: `Ccm::prepare()` sets
+  `activeState.ccm.changed`, and `Lut::prepare()` only fills the CCM and gamma
+  tables when that flag (or a black-level change) is seen.
+- `blackLevel` is a 16-bit value (`BlackLevel::init()` shifts it right by 8).
+  The 10-bit sensors here need `4096` (= 64 << 6); `64` shifts to 0 and the
+  absent/default `255` clamps the whole image to black.
+
+With `Lut` present but no `Ccm`, a rear capture is fully populated (R mean
+~103, max 255), so the sensor/ISP path is good.  Keeping `Ccm` currently
+renders black on libcamera 0.5; that is the open item.
+
 ## Therefore they are not installed by default
 
 `nabu-module.toml` deliberately has no `[install]` entry for them, because the
