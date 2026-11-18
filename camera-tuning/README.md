@@ -45,8 +45,9 @@ algorithms:
   absent/default `255` clamps the whole image to black.
 
 With `Lut` present but no `Ccm`, a rear capture is fully populated (R mean
-~103, max 255), so the sensor/ISP path is good.  Keeping `Ccm` currently
-renders black on libcamera 0.5; that is the open item.
+~103, max 255), so the sensor/ISP path is good.  The black frames seen with
+`Ccm` came from a test where `Lut` was listed *before* `Ccm`; the profiles ship
+`Ccm` then `Lut`, which is the configuration to verify next.
 
 ## Therefore they are not installed by default
 
