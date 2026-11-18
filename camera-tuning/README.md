@@ -60,6 +60,37 @@ untuned grey-world AWB:
   Ccm against 170.0/173.6/170.4 with the identity matrix) - its recovered
   matrices need their convention re-validated.
 
+## AWB colour gain tables (2026-11-18)
+
+The simple IPA's `Awb` used to be plain grey-world over the whole frame, so a
+subject filling the frame was neutralised (the "people change colour"
+report).  `patches/libcamera-0.5-simple-awb-colourgains.patch` adds the
+standard mechanism: when the tuning file carries `colourGains`, the
+grey-world estimate is only used to pick a colour temperature and the applied
+gains come from the table (`libipa::AwbGrey`, the same machinery rkisp1
+uses).  Dominant-colour subjects keep their colour; calibrated illuminants
+stay neutral.
+
+The shipped anchors are measured with the tablet itself:
+
+```text
+white wall, indoor LED light:
+  rear  ov13b10: grey-world gains R 1.77  B 1.51   estimateCCT 5470
+  front ov8856 : grey-world gains R 1.64  B 1.36   estimateCCT 6040
+```
+
+Re-measure under daylight by pointing each camera at a neutral surface and
+running:
+
+```sh
+LIBCAMERA_LOG_LEVELS=IPASoftAwb:DEBUG cam --camera=<n> \
+    --stream role=viewfinder,width=640,height=480 --capture=30 2>&1 \
+    | grep "gain R/B"
+```
+
+then update the `ct`/`gains` rows.  The 2856 K and 7500 K points are
+conservative extrapolations.
+
 The deeper issue is the AWB: `IPASoftAwb` is plain grey-world over the whole
 frame (`sumG/sumR, 1, sumG/sumB`) with no tuning hook, so a face-dominated
 frame gets neutralised - the "people change colour" report - and the CCM

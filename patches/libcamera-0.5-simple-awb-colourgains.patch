@@ -1,0 +1,88 @@
+diff --git a/src/ipa/simple/algorithms/awb.h b/src/ipa/simple/algorithms/awb.h
+index ad993f3..400f8de 100644
+--- a/src/ipa/simple/algorithms/awb.h
++++ b/src/ipa/simple/algorithms/awb.h
+@@ -9,6 +9,8 @@
+ 
+ #include "algorithm.h"
+ 
++#include "libipa/awb.h"
++
+ namespace libcamera {
+ 
+ namespace ipa::soft::algorithms {
+@@ -19,6 +21,7 @@ public:
+ 	Awb() = default;
+ 	~Awb() = default;
+ 
++	int init(IPAContext &context, const YamlObject &tuningData) override;
+ 	int configure(IPAContext &context, const IPAConfigInfo &configInfo) override;
+ 	void prepare(IPAContext &context,
+ 		     const uint32_t frame,
+@@ -29,6 +32,10 @@ public:
+ 		     IPAFrameContext &frameContext,
+ 		     const SwIspStats *stats,
+ 		     ControlList &metadata) override;
++
++private:
++	ipa::AwbGrey grey_;
++	bool hasColourGains_ = false;
+ };
+ 
+ } /* namespace ipa::soft::algorithms */
+diff --git a/src/ipa/simple/algorithms/awb.cpp b/src/ipa/simple/algorithms/awb.cpp
+index cf567e8..e0b4f86 100644
+--- a/src/ipa/simple/algorithms/awb.cpp
++++ b/src/ipa/simple/algorithms/awb.cpp
+@@ -25,6 +25,33 @@ LOG_DEFINE_CATEGORY(IPASoftAwb)
+ 
+ namespace ipa::soft::algorithms {
+ 
++/**
++ * \brief Load the optional per-CCT colour gain table
++ *
++ * With a colourGains table the grey-world estimate is only used to pick a
++ * colour temperature; the applied gains then come from the table.  A
++ * dominant-colour subject (a face filling the frame) no longer gets
++ * neutralised, while a neutral scene under a calibrated illuminant stays
++ * neutral.
++ */
++int Awb::init([[maybe_unused]] IPAContext &context, const YamlObject &tuningData)
++{
++	if (!tuningData.contains("colourGains"))
++		return 0;
++
++	int ret = grey_.init(tuningData);
++	if (ret) {
++		LOG(IPASoftAwb, Warning)
++			<< "Failed to parse 'colourGains', staying with grey world";
++		return 0;
++	}
++
++	hasColourGains_ = true;
++	LOG(IPASoftAwb, Info) << "AWB colour gain table in use";
++
++	return 0;
++}
++
+ int Awb::configure(IPAContext &context,
+ 		   [[maybe_unused]] const IPAConfigInfo &configInfo)
+ {
+@@ -88,6 +115,17 @@ void Awb::process(IPAContext &context,
+ 	context.activeState.awb.temperatureK = estimateCCT(rgbGains);
+ 	metadata.set(controls::ColourTemperature, context.activeState.awb.temperatureK);
+ 
++	/*
++	 * With a colour gain table the grey-world gains above only served to
++	 * estimate the colour temperature; take the gains from the table.
++	 */
++	if (hasColourGains_) {
++		auto tuned = grey_.gainsFromColourTemperature(
++			context.activeState.awb.temperatureK);
++		if (tuned)
++			gains = { { tuned->r(), tuned->g(), tuned->b() } };
++	}
++
+ 	LOG(IPASoftAwb, Debug)
+ 		<< "gain R/B: " << gains << "; temperature: "
+ 		<< context.activeState.awb.temperatureK;

@@ -21,6 +21,16 @@ algorithms:
   - BlackLevel:
       blackLevel: 1024
   - Awb:
+      # Measured on the tablet: grey-world gains for a white wall under the
+      # indoor LED light, estimated CCT 6040.  The 2856 K and 7500 K points
+      # are conservative extrapolations until a daylight re-measurement.
+      colourGains:
+        - ct: 2856
+          gains: [1.45, 1.55]
+        - ct: 6040
+          gains: [1.64, 1.36]
+        - ct: 7500
+          gains: [1.75, 1.25]
   - Lut:
   - Agc:
 ...
