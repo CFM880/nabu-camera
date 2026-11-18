@@ -1996,12 +1996,6 @@ static int ov8856_start_streaming(struct ov8856 *ov8856)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(&ov8856->sd);
 	const struct ov8856_reg_list *reg_list;
-	static const u16 debug_regs[] = {
-		OV8856_REG_MODE_SELECT, 0x0302, 0x0303, 0x3018,
-		0x4800, 0x4837, OV8856_REG_TEST_PATTERN,
-	};
-	u32 val;
-	unsigned int i;
 	int link_freq_index, ret;
 
 	ret = ov8856_identify_module(ov8856);
@@ -2040,19 +2034,6 @@ static int ov8856_start_streaming(struct ov8856 *ov8856)
 	if (ret) {
 		dev_err(&client->dev, "failed to set stream");
 		return ret;
-	}
-
-	usleep_range(1000, 2000);
-	for (i = 0; i < ARRAY_SIZE(debug_regs); i++) {
-		ret = ov8856_read_reg(ov8856, debug_regs[i],
-				      OV8856_REG_VALUE_08BIT, &val);
-		if (ret)
-			dev_err(&client->dev,
-				"failed to read back register 0x%04x: %d\n",
-				debug_regs[i], ret);
-		else
-			dev_info(&client->dev, "stream readback 0x%04x=0x%02x\n",
-				 debug_regs[i], val);
 	}
 
 	return 0;
