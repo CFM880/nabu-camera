@@ -25,7 +25,7 @@ camera keeps working (uncalibrated colours).
 ```
 algorithms:
   - BlackLevel:
-      blackLevel: 4096     # 16-bit value; the IPA uses blackLevel >> 8
+      blackLevel: 1024    # 16-bit value; the IPA uses blackLevel >> 8
   - Awb:
   - Ccm:
       ccms: [ { ct: ..., ccm: [...] }, ... ]
@@ -39,15 +39,17 @@ algorithms:
   though the ISP input is valid.
 - `Lut` must be listed **after** `Ccm`: `Ccm::prepare()` sets
   `activeState.ccm.changed`, and `Lut::prepare()` only fills the CCM and gamma
-  tables when that flag (or a black-level change) is seen.
+  tables when that flag (or a black-level change) is seen.  With the wrong
+  order the first frame is black and the CCM columns stay zero.
 - `blackLevel` is a 16-bit value (`BlackLevel::init()` shifts it right by 8).
-  The 10-bit sensors here need `4096` (= 64 << 6); `64` shifts to 0 and the
-  absent/default `255` clamps the whole image to black.
+  The 10-bit sensors here have a pedestal of ~16 (10-bit) = 4 (8-bit), so the
+  value is `1024` (= 16 << 6).  `4096` crushes shadows, `64` shifts to 0, and
+  the absent/default `255` clamps the whole image to black.
 
-With `Lut` present but no `Ccm`, a rear capture is fully populated (R mean
-~103, max 255), so the sensor/ISP path is good.  The black frames seen with
-`Ccm` came from a test where `Lut` was listed *before* `Ccm`; the profiles ship
-`Ccm` then `Lut`, which is the configuration to verify next.
+With `Lut` after `Ccm` a `cam --capture=5` run yields five consecutive frames:
+frame 0 is the CCM warm-up (black), frames 1-4 are fully populated.  libcamera
+0.5.0 also multiplies the CCM and AWB gains in the wrong order (a colour cast);
+v0.5.2 has the fix (`libcamera: software_isp: Fix CCM multiplication`).
 
 ## Therefore they are not installed by default
 
