@@ -161,6 +161,35 @@ The PipeWire node still enumerates only up to 4096x2160 (the sensor's native
 4:3 4208x3120 is not in the list), so the still-capture resolution inside the
 application is capped by that.
 
+## Colour pipeline: the CCM swap bug (fixed)
+
+`DebayerCpu` flips the Bayer order to reuse the RGB888 debayer functions when
+the output is BGR888/ABGR8888, and swaps the simple gain tables to compensate.
+The same swap was also applied to the CCM columns - plus an extra `.r/.b`
+field swap - which conjugates the colour matrix with the R/B permutation:
+every CCM then skews colours instead of correcting them.  The front camera
+showed a strong yellow cast from exactly this:
+
+```text
+neutral wall, no Ccm:            RGB 168.4/167.8/167.8   (sensor + AWB are fine)
+neutral wall, Ccm (buggy):       RGB 196.6/167.5/134.4   (R +17 %, B -20 %)
+neutral wall, Ccm (identity):    RGB 162.4/161.9/162.5   (pipeline handles diagonals)
+neutral wall, Ccm (fixed):       RGB 168.1/167.9/169.5   (cast gone)
+```
+
+`patches/libcamera-0.5-debayer-ccm-swap.patch` keeps the column swap (the
+flipped function really does deliver physically R/B-swapped samples) and drops
+the field swap.  The build script applies it with the other patches.
+
+This is an upstream software-ISP bug, not nabu-specific: every pipeline that
+uses the Ccm algorithm with a BGR888-family output is affected.
+
+The rear OV13B10 needs its own look under the corrected pipeline: on one
+scene its identity matrix reads 148.0/173.7/132.3 while the front's identity
+is neutral, and the recovered matrices turn green on that scene.  The old
+bug partially masked this; next step is the SGRBG statistics channel
+mapping and the AWB convergence for the rear sensor.
+
 ## Autofocus in libcamera
 
 Upstream's simple pipeline (0.5 to 0.8 and master) has no lens support, and the

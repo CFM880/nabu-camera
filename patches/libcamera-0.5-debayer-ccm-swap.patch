@@ -1,0 +1,26 @@
+diff --git a/src/libcamera/software_isp/debayer_cpu.cpp b/src/libcamera/software_isp/debayer_cpu.cpp
+index 5fe9f16..784316c 100644
+--- a/src/libcamera/software_isp/debayer_cpu.cpp
++++ b/src/libcamera/software_isp/debayer_cpu.cpp
+@@ -777,12 +777,17 @@ void DebayerCpu::process(uint32_t frame, FrameBuffer *input, FrameBuffer *output
+ 	if (swapRedBlueGains_) {
+ 		red_ = params.blue;
+ 		blue_ = params.red;
++		/*
++		 * The debayer function for the flipped Bayer order delivers
++		 * physically R/B-swapped samples in STORE_PIXEL(), so the CCM
++		 * columns need the same swap as the simple gain tables.  The
++		 * .r/.g/.b fields must NOT be swapped though: they already map
++		 * onto the output byte positions, and swapping them conjugates
++		 * the matrix with the R/B permutation, skewing every colour the
++		 * CCM is supposed to correct.
++		 */
+ 		redCcm_ = params.blueCcm;
+ 		blueCcm_ = params.redCcm;
+-		for (unsigned int i = 0; i < 256; i++) {
+-			std::swap(redCcm_[i].r, redCcm_[i].b);
+-			std::swap(blueCcm_[i].r, blueCcm_[i].b);
+-		}
+ 	} else {
+ 		red_ = params.red;
+ 		blue_ = params.blue;
