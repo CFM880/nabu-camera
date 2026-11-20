@@ -218,6 +218,14 @@ Autofocus locked at 253 score 65
 `cam --list-controls` lists `AfMode`, and after the process exits
 `v4l2-ctl --get-ctrl focus_absolute` reads back the locked position (253).
 
+`patches/libcamera-0.5.1-simple-autofocus-continuous.patch` (applied after the
+base patch, the build script sorts the names) adds continuous focus on top:
+once locked, a sustained drop to 75% of the lock score for 8 frames starts a
+full rescan, and every 300 frames (~10 s at 30 fps) the IPA probes +-60 lens
+steps around the lock - a clear win (>105%) on either side starts a rescan,
+otherwise it returns to the locked position.  A static scene therefore stays
+put instead of hunting.
+
 The closed Qualcomm AF tuning (`com.qti.tuned.*.bin`) and the actuator driver
 (`com.qti.actuator.nabu_cn3927.so`) live in `/vendor/lib64/camera` inside the
 `super` partition and are not accessible from the Linux side, so the scan

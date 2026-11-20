@@ -1,0 +1,104 @@
+diff --git a/include/libcamera/internal/software_isp/software_isp.h b/include/libcamera/internal/software_isp/software_isp.h
+index 1edc848..427b18e 100644
+--- a/include/libcamera/internal/software_isp/software_isp.h
++++ b/include/libcamera/internal/software_isp/software_isp.h
+@@ -126,6 +126,10 @@ private:
+ 		uint32_t settle = 0;
+ 		uint32_t lockedScore = 0;
+ 		unsigned int lowCount = 0;
++		unsigned int sinceProbe = 0;
++		int32_t probeBase = 0;
++		uint32_t probeNear = 0;
++		uint8_t probing = 0;
+ 		bool haveLock = false;
+ 		int32_t lockedPos = 0;
+ 		int32_t fineLo = 0;
+diff --git a/src/libcamera/software_isp/software_isp.cpp b/src/libcamera/software_isp/software_isp.cpp
+index 98d47b7..c63452b 100644
+--- a/src/libcamera/software_isp/software_isp.cpp
++++ b/src/libcamera/software_isp/software_isp.cpp
+@@ -381,6 +381,9 @@ void SoftwareIsp::runAutoFocus(uint32_t frame)
+ 	const int32_t fineRange = std::max(2, coarseStep);
+ 	const int32_t fineStep = std::max(1, fineRange / 2);
+ 	constexpr unsigned int kSettle = 3;
++	/* Continuous focus: probe the neighbourhood every ~10s at 30fps. */
++	constexpr unsigned int kProbeInterval = 300;
++	constexpr int32_t kProbeSteps = 60;
+ 
+ 	if (af_.phase == AutoFocusState::Phase::Idle)
+ 		return;
+@@ -451,6 +454,8 @@ void SoftwareIsp::runAutoFocus(uint32_t frame)
+ 			af_.lockedScore = af_.bestScore;
+ 			af_.haveLock = true;
+ 			af_.lockedPos = af_.pos;
++			af_.sinceProbe = 0;
++			af_.probing = false;
+ 			af_.settle = kSettle;
+ 			LOG(SoftwareIsp, Debug)
+ 				<< "Autofocus locked at " << af_.pos
+@@ -463,15 +468,61 @@ void SoftwareIsp::runAutoFocus(uint32_t frame)
+ 		break;
+ 
+ 	case AutoFocusState::Phase::Locked:
+-		/* Track slowly and rescan when the scene loses sharpness. */
+-		af_.lockedScore = (af_.lockedScore * 7 + score) / 8;
+-		if (score * 10 < af_.lockedScore * 4)
++		LOG(SoftwareIsp, Debug) << "AF locked frame " << frame;
++		/*
++		 * Continuous focus: rescan as soon as the sharpness clearly
++		 * drops (25% below the lock, sustained), and additionally
++		 * probe the neighbourhood every ~10s so a slowly drifting
++		 * subject is caught too.  The probe is a two-step hop (near,
++		 * far) handled right here; a clear win on either side starts
++		 * a full rescan.
++		 */
++		if (af_.probing == 1) {
++			/* Score at probeBase - kProbeSteps. */
++			af_.probing = 2;
++			af_.probeNear = score;
++			af_.pos = std::min(af_.maxPos,
++					   af_.probeBase + kProbeSteps);
++			lens_->setFocusPosition(af_.pos);
++			af_.settle = kSettle;
++			break;
++		}
++		if (af_.probing == 2) {
++			/* Score at probeBase + kProbeSteps: decide. */
++			af_.probing = 0;
++			af_.pos = af_.probeBase;
++			lens_->setFocusPosition(af_.pos);
++			af_.settle = kSettle;
++			LOG(SoftwareIsp, Debug)
++				<< "AF probe near " << af_.probeNear
++				<< " far " << score
++				<< " locked " << af_.lockedScore;
++			if (af_.probeNear * 100 > af_.lockedScore * 105 ||
++			    score * 100 > af_.lockedScore * 105)
++				startAutoFocus(true);
++			break;
++		}
++
++		if (score * 100 > af_.lockedScore * 115)
++			af_.lockedScore = (af_.lockedScore * 3 + score) / 4;
++		if (score * 100 < af_.lockedScore * 75)
+ 			af_.lowCount++;
+ 		else
+ 			af_.lowCount = 0;
+ 
+-		if (af_.lowCount >= 20)
++		if (af_.lowCount >= 8) {
+ 			startAutoFocus(true);
++			break;
++		}
++
++		if (++af_.sinceProbe < kProbeInterval)
++			break;
++		af_.sinceProbe = 0;
++		af_.probeBase = af_.pos;
++		af_.pos = std::max(af_.minPos, af_.pos - kProbeSteps);
++		lens_->setFocusPosition(af_.pos);
++		af_.settle = kSettle;
++		af_.probing = 1;
+ 		break;
+ 
+ 	case AutoFocusState::Phase::Idle:

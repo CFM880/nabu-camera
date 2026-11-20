@@ -44,8 +44,16 @@ trap 'rm -rf "$src"' EXIT
 mkdir -p "$OUT"
 
 echo "== fetching libcamera v$VERSION"
-curl -fsSL "https://github.com/libcamera-org/libcamera/archive/refs/tags/v$VERSION.tar.gz" |
-	tar -xz -C "$src" --strip-components=1
+# Use a local cached tarball when present (fetches can get truncated).
+cache="$here/out/libcamera-$VERSION.tar.gz"
+if [ -s "$cache" ] && gzip -t "$cache" 2>/dev/null; then
+	tar -xzf "$cache" -C "$src" --strip-components=1
+else
+	curl -fsSL "https://github.com/libcamera-org/libcamera/archive/refs/tags/v$VERSION.tar.gz" -o "$cache" ||
+	curl -fsSL "https://github.com/libcamera-org/libcamera/archive/refs/tags/$VERSION.tar.gz" -o "$cache"
+	gzip -t "$cache" || { rm -f "$cache"; echo "error: truncated download" >&2; exit 1; }
+	tar -xzf "$cache" -C "$src" --strip-components=1
+fi
 
 # Apply the nabu patches (lens plumbing + contrast autofocus for the simple
 # pipeline) on top of the pristine release.
